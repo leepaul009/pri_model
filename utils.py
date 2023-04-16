@@ -195,6 +195,7 @@ def add_argument(parser):
     parser.add_argument("--mode_num",
                         default=6,
                         type=int)
+    parser.add_argument("--local_rank", type=int, default=0)
 
 class Args:
     data_dir = None
@@ -252,6 +253,7 @@ class Args:
     mode_num = None
     nms_threshold = None
     inter_agent_types = None
+    local_rank = None
 
 args: Args = None
 
@@ -444,7 +446,8 @@ def merge_tensors(tensors: List[torch.Tensor], device, hidden_size=None) -> Tupl
             res[i][:tensor.shape[0]] = tensor
     return res, lengths
 
-
+def batch_list_to_batch_tensors(batch):
+    return [each for each in batch]
 
 
 
