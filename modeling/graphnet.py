@@ -32,7 +32,7 @@ class NewSubGraph(nn.Module):
         device = input_list[0].device
         # input_list is list of tensor[nodes(atoms), hidden], list size = lines(residue)
         # hidden_states = [lines, max_nodes, hidden]
-        hidden_states, lengths = utils.merge_tensors(input_list, device)
+        hidden_states, lengths = utils.merge_tensors(input_list, device) # [aa, max_atoms, h]
         hidden_size = hidden_states.shape[2]
         max_vector_num = hidden_states.shape[1]
 
@@ -72,6 +72,12 @@ class GraphNet(nn.Module):
         global args
         args = args_
         hidden_size = args.hidden_size
+        
+        
+        nfeatures_atom = 12 
+        nembedding_atom = 12 # use scannet's param
+        self.atom_emb_layer = nn.Embedding(num_embeddings=nfeatures_atom + 1, 
+                embedding_dim=nembedding_atom, padding_idx=nfeatures_atom)
 
         self.point_level_sub_graph = NewSubGraph(hidden_size)
         self.point_level_cross_attention = CrossAttention(hidden_size)
@@ -90,7 +96,7 @@ class GraphNet(nn.Module):
             self.decoder.complete_traj_cross_attention = CrossAttention(hidden_size)
             self.decoder.complete_traj_decoder = DecoderResCat(hidden_size, hidden_size * 3, out_features=self.decoder.future_frame_num * 2)
 
-    def forward_encode_sub_graph(self, mapping: List[Dict], matrix: List[np.ndarray], polyline_spans: List[List[slice]],
+    def forward_encode_sub_graph0(self, mapping: List[Dict], matrix: List[np.ndarray], polyline_spans: List[List[slice]],
                                  device, batch_size) -> Tuple[List[Tensor], List[Tensor]]:
         """
         :param matrix: each value in list is vectors of all element (shape [-1, 128])
@@ -143,14 +149,77 @@ class GraphNet(nn.Module):
 
         return element_states_batch, lane_states_batch
 
+    def forward_encode_sub_graph(
+            self, mapping: List[Dict], 
+            aa_attributes, aa_indices, 
+            atom_attributes, atom_indices,
+            # matrix: List[np.ndarray], 
+            # polyline_spans: List[List[slice]],
+            device, batch_size) -> Tuple[List[Tensor], List[Tensor]]:
+        """
+        :param matrix: each value in list is vectors of all element (shape [-1, 128])
+        :param polyline_spans: vectors of i_th element is matrix[polyline_spans[i]]
+        :return: hidden states of all elements and hidden states of lanes
+        """
+        input_list_list = []
+        # TODO(cyrushx): This is not used? Is it because input_list_list includes map data as well?
+        # Yes, input_list_list includes map data, this will be used in the future release.
+        map_input_list_list = []
+        lane_states_batch = None
+        for i in range(batch_size):
+            input_list = []
+            map_input_list = []
+            map_start_polyline_idx = mapping[i]['map_start_polyline_idx']
+            for j, polyline_span in enumerate(polyline_spans[i]):
+                tensor = torch.tensor(matrix[i][polyline_span], device=device)
+                input_list.append(tensor)
+                if j >= map_start_polyline_idx:
+                    map_input_list.append(tensor)
+
+            input_list_list.append(input_list)
+            map_input_list_list.append(map_input_list)
+        
+        atom_input_list_list = []
+        for i in range(batch_size):
+            atom_input_list = []
+            for j in range(len(atom_attributes[i])):
+                tensor = torch.tensor(atom_attributes[i][j], device=device)
+                atom_input_list.append(tensor)
+            atom_input_list_list.append(atom_input_list)
+
+        element_states_batch = []
+        for i in range(batch_size): # per chain
+            temp = self.atom_emb_layer(atom_input_list_list[i]) # list([aa_atoms,]) => []
+            #
+            a, b = self.point_level_sub_graph(temp)
+            element_states_batch.append(a)
+
+        return element_states_batch, lane_states_batch
+
     # @profile
     def forward(self, mapping: List[Dict], device):
         import time
         global starttime
         starttime = time.time()
 
+
+        aa_attributes = utils.get_from_mapping(mapping, 'aa_attributes') # list([n_aa, 20])
+        aa_indices = utils.get_from_mapping(mapping, 'aa_indices')
+        atom_attributes = utils.get_from_mapping(mapping, 'atom_attributes') # list(list([aa_atoms,]))
+        atom_indices = utils.get_from_mapping(mapping, 'atom_indices')
+
+        batch_size = len(aa_attributes)
+
+        element_states_batch, lane_states_batch =\
+            self.forward_encode_sub_graph(
+                mapping, 
+                aa_attributes, aa_indices, atom_attributes, atom_indices,
+                device, batch_size)
+        
+
+
+
         matrix = utils.get_from_mapping(mapping, 'matrix')
-        # TODO(cyrushx): Can you explain the structure of polyline spans?
         # vectors of i_th element is matrix[polyline_spans[i]]
         polyline_spans = utils.get_from_mapping(mapping, 'polyline_spans')
 
@@ -160,8 +229,10 @@ class GraphNet(nn.Module):
 
         if args.argoverse:
             utils.batch_init(mapping)
+        
         # 输出都是list[tensor]: subgraph全部特征[num_polylines,128], subgraph地图特征[n_lane_polylines,128]
-        element_states_batch, lane_states_batch = self.forward_encode_sub_graph(mapping, matrix, polyline_spans, device, batch_size)
+        element_states_batch, lane_states_batch = self.forward_encode_sub_graph0(mapping, matrix, polyline_spans, device, batch_size)
+        
         # 因为各polyline数量不同,需要padding: inputs:subgraph全部特征,shape=[batch,max_polylines,128], inputs_lengths:list[polyline实际数量]
         inputs, inputs_lengths = utils.merge_tensors(element_states_batch, device=device)
         max_poly_num = max(inputs_lengths)

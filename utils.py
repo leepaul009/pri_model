@@ -449,7 +449,11 @@ def merge_tensors(tensors: List[torch.Tensor], device, hidden_size=None) -> Tupl
 def batch_list_to_batch_tensors(batch):
     return [each for each in batch]
 
-
+def get_from_mapping(mapping: List[Dict], key=None):
+    # if key is None:
+    #     line_context = inspect.getframeinfo(inspect.currentframe().f_back).code_context[0]
+    #     key = line_context.split('=')[0].strip()
+    return [each[key] for each in mapping]
 
 
 

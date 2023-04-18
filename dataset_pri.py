@@ -41,86 +41,6 @@ def process_chain_without_coordinates(chain):
     if it in list_aa or it.upper() in list_aa] # check if aa not in list_aa
   return np.array(chain_by_int)
 
-def pri_get_instance2(data_frame, file_name, args):
-  mapping = {}
-  mapping['file_name'] = file_name
-
-  pkey = "protein_sequence"
-  rkey = "nucleotide_sequence"
-
-  # vectors = []
-
-  # all_seq_by_str = [] # list of list of str
-  # all_seq_by_int = [] # list of list of int
-  num_lines = len(data_frame)
-  num_lines = 64 * 10
-
-  list_aa_attributes = []
-  list_atom_attributes = []
-  list_atom_indices = []
-  list_label_dG = []
-
-  for i in range(num_lines): # per chain
-    prot_chain = data_frame.loc[i][pkey] # string
-    rdna_seq = data_frame.loc[i][rkey] # string
-
-    label_dG = data_frame.loc[i]['dG']
-    # seq_by_int = [aa_to_index[it] # list_aa.index(it) 
-    #   if it in list_aa else it.upper() # handle lower case of aa
-    #   for it in prot_seq 
-    #   if it in list_aa or it.upper() in list_aa] # check if aa not in list_aa
-    chain_by_int = process_chain_without_coordinates(prot_chain)
-    aa_attributes = binarize_categorical(chain_by_int, 20) # one-hot np.arr[seq, 20]
-    aa_attributes = aa_attributes.astype(np.float32)
-
-    # all_seq_by_int.append(seq_by_int)
-    # all_seq_by_str.append([it_aa for it_aa in prot_seq])
-    atom_attributes = []
-    atom_mass_attributes = []
-    atom_indices = []
-    # atom_indices = []
-    for it in chain_by_int: # per residue
-      aa = list_aa[it]
-      num_atoms = len(list(dictionary_covalent_bonds[aa].keys()))
-      atom_type_per_aa = np.array([list_atoms.index(atom) for atom in dictionary_covalent_bonds[aa].keys()])
-      atom_mass_per_aa = np.array([atom_type_mass[list_atoms.index(atom)] for atom in dictionary_covalent_bonds[aa].keys()])
-      atom_attributes.append(atom_type_per_aa)
-      atom_mass_attributes.append(atom_mass_per_aa)
-      atom_indices.append(np.ones((num_atoms,), dtype=np.int32) * it)
-
-    atom_attributes = np.concatenate(atom_attributes, axis=0)
-    atom_mass_attributes = np.concatenate(atom_mass_attributes, axis=0)
-    atom_indices = np.concatenate(atom_indices, axis=0)
-
-    # residues
-    aa_attributes = remove_nan(aa_attributes, padding_value=0.) # [seq_aa, 20]
-    # atoms
-    atom_attributes = remove_nan(atom_attributes, padding_value=0.) # [seq_atoms,]
-    atom_mass_attributes = remove_nan(atom_mass_attributes, padding_value=0.)
-    atom_indices = remove_nan(atom_indices, padding_value=0.)
-
-    list_aa_attributes.append(aa_attributes)
-    list_atom_attributes.append(atom_attributes)
-    list_atom_indices.append(atom_indices)
-    list_label_dG.append(label_dG)
-
-  # mapping.update(dict(
-  #   matrix=matrix, # feat [n_nodes(traj + map), 128]
-  #   labels=np.array(labels).reshape([30, 2]), # gt traj
-  #   polyline_spans=[slice(each[0], each[1]) for each in polyline_spans], # list of slice(slice记录一个polyline的再matrix中的起止位置)
-  #   labels_is_valid=np.ones(args.future_frame_num, dtype=np.int64), # gt validance [30, 2]
-  #   eval_time=30,
-  # ))
-  mapping.update(dict(
-    aa_attributes = list_aa_attributes,
-    atom_attributes = list_atom_attributes,
-    # atom_mass_attributes = atom_mass_attributes,
-    atom_indices = list_atom_indices,
-    label = list_label_dG,
-  ))
-  return mapping
-
-
 def pri_get_instance(input, args):
   mapping = {}
 
@@ -132,8 +52,11 @@ def pri_get_instance(input, args):
   #   for it in prot_seq 
   #   if it in list_aa or it.upper() in list_aa] # check if aa not in list_aa
   chain_by_int = process_chain_without_coordinates(prot_chain)
+  num_aa = len(chain_by_int)
+
   aa_attributes = binarize_categorical(chain_by_int, 20) # one-hot np.arr[seq, 20]
   aa_attributes = aa_attributes.astype(np.float32)
+  aa_indices = np.array([i for i in range(num_aa)])
 
   # all_seq_by_int.append(seq_by_int)
   # all_seq_by_str.append([it_aa for it_aa in prot_seq])
@@ -146,19 +69,23 @@ def pri_get_instance(input, args):
     num_atoms = len(list(dictionary_covalent_bonds[aa].keys()))
     atom_type_per_aa = np.array([list_atoms.index(atom) for atom in dictionary_covalent_bonds[aa].keys()])
     atom_mass_per_aa = np.array([atom_type_mass[list_atoms.index(atom)] for atom in dictionary_covalent_bonds[aa].keys()])
+    
+    atom_type_per_aa = remove_nan(atom_type_per_aa)
+    atom_mass_per_aa = remove_nan(atom_mass_per_aa)
+    
     atom_attributes.append(atom_type_per_aa)
     atom_mass_attributes.append(atom_mass_per_aa)
     atom_indices.append(np.ones((num_atoms,), dtype=np.int32) * it)
 
-  atom_attributes = np.concatenate(atom_attributes, axis=0)
-  atom_mass_attributes = np.concatenate(atom_mass_attributes, axis=0)
+  # atom_attributes = np.concatenate(atom_attributes, axis=0)
+  # atom_mass_attributes = np.concatenate(atom_mass_attributes, axis=0)
   atom_indices = np.concatenate(atom_indices, axis=0)
 
   # residues
   aa_attributes = remove_nan(aa_attributes, padding_value=0.) # [seq_aa, 20]
   # atoms
-  atom_attributes = remove_nan(atom_attributes, padding_value=0.) # [seq_atoms,]
-  atom_mass_attributes = remove_nan(atom_mass_attributes, padding_value=0.)
+  # atom_attributes = remove_nan(atom_attributes, padding_value=0.) # [seq_atoms,]
+  # atom_mass_attributes = remove_nan(atom_mass_attributes, padding_value=0.)
   atom_indices = remove_nan(atom_indices, padding_value=0.)
 
   # mapping.update(dict(
@@ -170,6 +97,7 @@ def pri_get_instance(input, args):
   # ))
   mapping.update(dict(
     aa_attributes = aa_attributes,
+    aa_indices = aa_indices,
     atom_attributes = atom_attributes,
     # atom_mass_attributes = atom_mass_attributes,
     atom_indices = atom_indices,
@@ -331,7 +259,8 @@ if __name__ == '__main__':
   for step, batch in enumerate(train_dataloader):
     print("step {}, batch.type={}".format( step, type(batch) ))
     if (isinstance(batch, list)):
-      print("batch size={}".format( len(batch) ))
+      # batch has 64 inputs(list of dict)
+      print("batch size={}".format( len(batch) )) 
 
 
 
