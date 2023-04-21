@@ -10,37 +10,57 @@ from modeling.lib import MLP, GlobalGraph, LayerNorm, CrossAttention, GlobalGrap
 import utils
 
 
-class NewSubGraph(nn.Module):
-
-    def __init__(self, hidden_size, depth=None):
-        super(NewSubGraph, self).__init__()
-        if depth is None:
-            depth = 3 # args.sub_graph_depth
-        self.layers = nn.ModuleList([MLP(hidden_size, hidden_size // 2) for _ in range(depth)])
+class SubGraph(nn.Module):
+    # config:
+    #   depth:int, hidden_size:int, point_level-4-3:bool
+    def __init__(self, config):
+        super(SubGraph, self).__init__()
+        
+        depth = config['depth']
+        hidden_size = config['hidden_size']
 
         self.layer_0 = MLP(hidden_size)
-        self.layers = nn.ModuleList([GlobalGraph(hidden_size, num_attention_heads=2) for _ in range(depth)])
+        self.layers = nn.ModuleList([GlobalGraph(hidden_size, num_attention_heads=2) 
+                                     for _ in range(depth)])
         self.layers_2 = nn.ModuleList([LayerNorm(hidden_size) for _ in range(depth)])
-        self.layers_3 = nn.ModuleList([LayerNorm(hidden_size) for _ in range(depth)])
-        self.layers_4 = nn.ModuleList([GlobalGraph(hidden_size) for _ in range(depth)])
-        if 'point_level-4-3' in args.other_params:
+        
+        if config['point_level-4-3']:
             self.layer_0_again = MLP(hidden_size)
+        
+        if config['use_atom_embedding']:
+            atom_nfeatures = config['atom_nfeatures']
+            self.atom_emb_layer = nn.Embedding(num_embeddings=atom_nfeatures + 1, 
+                                               embedding_dim=atom_nfeatures)
+            self.layer_0 = MLP(atom_nfeatures, hidden_size)
+        
+        self.config = config
 
-    # input_list could be a chain, shape=[residues, max_atoms, hidden]
-    def forward(self, input_list: list):
+
+    # input_list:
+    #   case1: a chain, shape=residues*[atoms, hidden] (att along atoms)
+    #   case2: a batch of chains, shape=N*[residues, hidden] (att along residues)
+    def forward(self, input_list):
         batch_size = len(input_list)
         device = input_list[0].device
-        # input_list is list of tensor[nodes(atoms), hidden], list size = lines(residue)
-        # hidden_states = [lines, max_nodes, hidden]
+        # input_list is list of tensor[nodes(atom/aa), hidden]
+        # merge with padding: hidden_states = [lines, max_nodes, hidden]
         hidden_states, lengths = utils.merge_tensors(input_list, device) # [aa, max_atoms, h]
-        hidden_size = hidden_states.shape[2]
-        max_vector_num = hidden_states.shape[1]
+        # hidden_size = hidden_states.shape[2] # here hidden size is input's
+        max_vector_num = hidden_states.shape[1] # do att along this dim
 
-        attention_mask = torch.zeros([batch_size, max_vector_num, max_vector_num], device=device)
+        attention_mask = torch.zeros(
+            [batch_size, max_vector_num, max_vector_num], device=device)
+        
+        if self.config['use_atom_embedding']:
+            # [max_atoms,1] => [max_atoms,12]
+            hidden_states = self.atom_emb_layer(hidden_states)
+
         hidden_states = self.layer_0(hidden_states)
 
-        if 'point_level-4-3' in args.other_params:
+        if self.config['point_level-4-3']:
             hidden_states = self.layer_0_again(hidden_states)
+        
+        # mask sequence dim as each item in batch has difference seq length
         for i in range(batch_size):
             assert lengths[i] > 0
             attention_mask[i, :lengths[i], :lengths[i]].fill_(1)
@@ -55,104 +75,49 @@ class NewSubGraph(nn.Module):
             hidden_states = hidden_states + temp
             hidden_states = self.layers_2[layer_index](hidden_states)
 
-        return torch.max(hidden_states, dim=1)[0], torch.cat(utils.de_merge_tensors(hidden_states, lengths))
+        # apply max pooling along seq dim, output: [N, h]
+        return torch.max(hidden_states, dim=1)[0], \
+               torch.cat(utils.de_merge_tensors(hidden_states, lengths))
+
 
 
 class GraphNet(nn.Module):
     r"""
-    GraphNet
-
     It has two main components, sub graph and global graph.
-
     Sub graph encodes a polyline as a single vector.
     """
 
-    def __init__(self, args_: utils.Args):
+    def __init__(self, config, args_: utils.Args):
         super(GraphNet, self).__init__()
         global args
         args = args_
         hidden_size = args.hidden_size
         
+        # depth:int, hidden_size:int, point_level-4-3:bool
+        atom_nfeatures = 12
+        self.atom_emb_layer = nn.Embedding(num_embeddings=atom_nfeatures + 1, 
+                                           embedding_dim=args.hidden_size)
         
-        nfeatures_atom = 12 
-        nembedding_atom = 12 # use scannet's param
-        self.atom_emb_layer = nn.Embedding(num_embeddings=nfeatures_atom + 1, 
-                embedding_dim=nembedding_atom, padding_idx=nfeatures_atom)
-
-        self.point_level_sub_graph = NewSubGraph(hidden_size)
+        config['depth'] = args.sub_graph_depth
+        config['hidden_size'] = args.hidden_size
+        config['point_level-4-3'] = True
+        config['use_atom_embedding'] = True
+        config['atom_nfeatures'] = 12
+        self.point_level_sub_graph = SubGraph(config)
         self.point_level_cross_attention = CrossAttention(hidden_size)
 
-        self.global_graph = GlobalGraph(hidden_size)
-        if 'enhance_global_graph' in args.other_params:
-            self.global_graph = GlobalGraphRes(hidden_size)
-        if 'laneGCN' in args.other_params:
-            self.laneGCN_A2L = CrossAttention(hidden_size)
-            self.laneGCN_L2L = GlobalGraphRes(hidden_size)
-            self.laneGCN_L2A = CrossAttention(hidden_size)
-
-        self.decoder = Decoder(args, self)
-
-        if 'complete_traj' in args.other_params:
-            self.decoder.complete_traj_cross_attention = CrossAttention(hidden_size)
-            self.decoder.complete_traj_decoder = DecoderResCat(hidden_size, hidden_size * 3, out_features=self.decoder.future_frame_num * 2)
-
-    def forward_encode_sub_graph0(self, mapping: List[Dict], matrix: List[np.ndarray], polyline_spans: List[List[slice]],
-                                 device, batch_size) -> Tuple[List[Tensor], List[Tensor]]:
-        """
-        :param matrix: each value in list is vectors of all element (shape [-1, 128])
-        :param polyline_spans: vectors of i_th element is matrix[polyline_spans[i]]
-        :return: hidden states of all elements and hidden states of lanes
-        """
-        input_list_list = []
-        # TODO(cyrushx): This is not used? Is it because input_list_list includes map data as well?
-        # Yes, input_list_list includes map data, this will be used in the future release.
-        map_input_list_list = []
-        lane_states_batch = None
-        for i in range(batch_size):
-            input_list = []
-            map_input_list = []
-            map_start_polyline_idx = mapping[i]['map_start_polyline_idx']
-            for j, polyline_span in enumerate(polyline_spans[i]):
-                tensor = torch.tensor(matrix[i][polyline_span], device=device)
-                input_list.append(tensor)
-                if j >= map_start_polyline_idx:
-                    map_input_list.append(tensor)
-
-            input_list_list.append(input_list)
-            map_input_list_list.append(map_input_list)
-
-        if True:
-            element_states_batch = []
-            for i in range(batch_size): # per chain
-                a, b = self.point_level_sub_graph(input_list_list[i])
-                element_states_batch.append(a)
-
-        if 'stage_one' in args.other_params:
-            lane_states_batch = []
-            for i in range(batch_size):
-                a, b = self.point_level_sub_graph(map_input_list_list[i])
-                lane_states_batch.append(a)
-
-        if 'laneGCN' in args.other_params:
-            inputs_before_laneGCN, inputs_lengths_before_laneGCN = utils.merge_tensors(element_states_batch, device=device)
-            for i in range(batch_size):
-                map_start_polyline_idx = mapping[i]['map_start_polyline_idx']
-                agents = element_states_batch[i][:map_start_polyline_idx]
-                lanes = element_states_batch[i][map_start_polyline_idx:]
-                if 'laneGCN-4' in args.other_params:
-                    lanes = lanes + self.laneGCN_A2L(lanes.unsqueeze(0), torch.cat([lanes, agents[0:1]]).unsqueeze(0)).squeeze(0)
-                else:
-                    lanes = lanes + self.laneGCN_A2L(lanes.unsqueeze(0), agents.unsqueeze(0)).squeeze(0)
-                    lanes = lanes + self.laneGCN_L2L(lanes.unsqueeze(0)).squeeze(0)
-                    agents = agents + self.laneGCN_L2A(agents.unsqueeze(0), lanes.unsqueeze(0)).squeeze(0)
-                element_states_batch[i] = torch.cat([agents, lanes])
-
-        return element_states_batch, lane_states_batch
+        # self.global_graph = GlobalGraph(hidden_size)
+        self.global_graph = GlobalGraphRes(hidden_size)
+        
+        self.laneGCN_A2L = CrossAttention(hidden_size)
+        self.laneGCN_L2L = GlobalGraphRes(hidden_size)
+        self.laneGCN_L2A = CrossAttention(hidden_size)
 
     def forward_encode_sub_graph(
             self, mapping: List[Dict], 
             aa_attributes, aa_indices, 
-            atom_attributes, atom_indices,
+            atom_attributes, # List[List[np.ndarray]]
+            atom_indices,
             # matrix: List[np.ndarray], 
             # polyline_spans: List[List[slice]],
             device, batch_size) -> Tuple[List[Tensor], List[Tensor]]:
@@ -162,8 +127,6 @@ class GraphNet(nn.Module):
         :return: hidden states of all elements and hidden states of lanes
         """
         input_list_list = []
-        # TODO(cyrushx): This is not used? Is it because input_list_list includes map data as well?
-        # Yes, input_list_list includes map data, this will be used in the future release.
         map_input_list_list = []
         lane_states_batch = None
         for i in range(batch_size):
@@ -179,22 +142,38 @@ class GraphNet(nn.Module):
             input_list_list.append(input_list)
             map_input_list_list.append(map_input_list)
         
-        atom_input_list_list = []
-        for i in range(batch_size):
-            atom_input_list = []
-            for j in range(len(atom_attributes[i])):
-                tensor = torch.tensor(atom_attributes[i][j], device=device)
-                atom_input_list.append(tensor)
-            atom_input_list_list.append(atom_input_list)
+        prot_atom_input_list_list = []
+        drna_atom_input_list_list = []
 
-        element_states_batch = []
         for i in range(batch_size): # per chain
-            temp = self.atom_emb_layer(atom_input_list_list[i]) # list([aa_atoms,]) => []
-            #
-            a, b = self.point_level_sub_graph(temp)
-            element_states_batch.append(a)
+            input_list = []
+            for j in range(len(atom_attributes[i])): # per aa
+                # np.array to tensor shape=[num_atoms, 1]
+                tensor = torch.tensor(atom_attributes[i][j], device=device)
+                input_list.append(tensor)
+            prot_atom_input_list_list.append(input_list)
 
-        return element_states_batch, lane_states_batch
+        prot_states_batch = []
+        for i in range(batch_size): # per chain
+            a, b = self.point_level_sub_graph(prot_atom_input_list_list[i])
+            prot_states_batch.append(a)
+
+        rdna_states_batch = []
+        for i in range(batch_size): # per chain
+            a, b = self.point_level_sub_graph(drna_atom_input_list_list[i])
+            rdna_states_batch.append(a)
+
+        for i in range(batch_size):
+            prot_feats = prot_states_batch[i] # [aa, h]
+            rdna_feats = rdna_states_batch[i] # [nc, h]
+            rdna_feats = rdna_feats + self.laneGCN_A2L(
+                rdna_feats.unsqueeze(0), prot_feats.unsqueeze(0)).squeeze(0)
+            rdna_feats = rdna_feats + self.laneGCN_L2L(rdna_feats.unsqueeze(0)).squeeze(0)
+            prot_feats = prot_feats + self.laneGCN_L2A(
+                prot_feats.unsqueeze(0), rdna_feats.unsqueeze(0)).squeeze(0)
+            prot_states_batch[i] = torch.cat([prot_feats, rdna_feats]) # [aa+nc, h]
+
+        return prot_states_batch, rdna_states_batch
 
     # @profile
     def forward(self, mapping: List[Dict], device):
@@ -244,4 +223,6 @@ class GraphNet(nn.Module):
 
         utils.logging('time3', round(time.time() - starttime, 2), 'secs')
 
-        return self.decoder(mapping, batch_size, lane_states_batch, inputs, inputs_lengths, hidden_states, device)
+        #return self.decoder(mapping, batch_size, lane_states_batch, inputs, inputs_lengths, hidden_states, device)
+        outputs = None
+        return outputs

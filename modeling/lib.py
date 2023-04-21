@@ -47,10 +47,16 @@ class GlobalGraph(nn.Module):
     It's actually a self-attention.
     """
 
-    def __init__(self, hidden_size, attention_head_size=None, num_attention_heads=1, use_attention_decay=False):
+    # hidden_size = attention_head_size * num_attention_heads
+    def __init__(self, 
+                 hidden_size, 
+                 attention_head_size=None, 
+                 num_attention_heads=1, 
+                 use_attention_decay=False):
         super(GlobalGraph, self).__init__()
         self.num_attention_heads = num_attention_heads
-        self.attention_head_size = hidden_size // num_attention_heads if attention_head_size is None else attention_head_size
+        self.attention_head_size = hidden_size // num_attention_heads \
+            if attention_head_size is None else attention_head_size
         self.all_head_size = self.num_attention_heads * self.attention_head_size
 
         self.num_qkv = 1
@@ -83,7 +89,11 @@ class GlobalGraph(nn.Module):
         return x.permute(0, 2, 1, 3)
     
     # hidden_states shape=[bs, seq, hidden], where bs is either batch size or residues number
-    def forward(self, hidden_states, attention_mask=None, mapping=None, return_scores=False):
+    def forward(self, 
+                hidden_states, 
+                attention_mask=None, 
+                mapping=None, 
+                return_scores=False):
         
         mixed_query_layer = self.query(hidden_states)
         mixed_key_layer = nn.functional.linear(hidden_states, self.key.weight)
@@ -108,7 +118,8 @@ class GlobalGraph(nn.Module):
         # if utils.args.attention_decay and utils.second_span:
         if self.use_attention_decay:
             # utils.logging(self.attention_decay, prob=0.01)
-            value_layer = torch.cat([value_layer[:, 0:1, 0:1, :] * self.attention_decay, value_layer[:, 0:1, 1:, :]],
+            value_layer = torch.cat([value_layer[:, 0:1, 0:1, :] * self.attention_decay,
+                                     value_layer[:, 0:1, 1:, :]],
                                     dim=2)
         context_layer = torch.matmul(attention_probs, value_layer)
         context_layer = context_layer.permute(0, 2, 1, 3).contiguous()
@@ -124,7 +135,11 @@ class GlobalGraph(nn.Module):
 
 
 class CrossAttention(GlobalGraph):
-    def __init__(self, hidden_size, attention_head_size=None, num_attention_heads=1, key_hidden_size=None,
+    def __init__(self, 
+                 hidden_size, 
+                 attention_head_size=None, 
+                 num_attention_heads=1, 
+                 key_hidden_size=None,
                  query_hidden_size=None):
         super(CrossAttention, self).__init__(hidden_size, attention_head_size, num_attention_heads)
         if query_hidden_size is not None:
@@ -133,7 +148,11 @@ class CrossAttention(GlobalGraph):
             self.key = nn.Linear(key_hidden_size, self.all_head_size * self.num_qkv)
             self.value = nn.Linear(key_hidden_size, self.all_head_size * self.num_qkv)
 
-    def forward(self, hidden_states_query, hidden_states_key=None, attention_mask=None, mapping=None,
+    def forward(self, 
+                hidden_states_query, 
+                hidden_states_key=None, 
+                attention_mask=None, 
+                mapping=None,
                 return_scores=False):
         mixed_query_layer = self.query(hidden_states_query)
         mixed_key_layer = self.key(hidden_states_key)

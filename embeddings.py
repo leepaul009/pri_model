@@ -8,6 +8,56 @@ from torch import Tensor, nn
 from torch.nn import functional as F
 
 
+class EmbeddingOuterProduct(nn.Module):
+  def __init__(self, config):
+    super(EmbeddingOuterProduct, self).__init__()
+    self.config = config
+    self.epsilon = 1e-6
+
+    self.Lmax = 256
+    self.Kmax = 14
+    self.nfeatures_graph = 1
+    self.nheads = 64
+    self.nfeatures_output = 1
+
+
+  def forward(self, inputs):
+    attention_coefficients, node_outputs, graph_weights = inputs
+    device = attention_coefficients.device
+
+    epsilon = torch.tensor(self.epsilon).to(device)
+
+    # [N, aa_seq, k, 1, 64]
+    attention_coefficients = attention_coefficients.reshape(
+      -1, self.Lmax, self.Kmax, self.nfeatures_graph, self.nheads)
+    # [N, aa_seq, k, 1, 64]
+    node_outputs = node_outputs.reshape(
+      -1, self.Lmax, self.Kmax, self.nfeatures_output, self.nheads)
+
+    # [N, aa_seq, k, 1, 64] => [N, aa_seq, k, 1, 64]
+    # attention_coefficients -= tf.reduce_max(
+    #     attention_coefficients, axis=[-3, -2], keep_dims=True)
+    attention_coefficients -= torch.sum(
+      attention_coefficients, dim=[-3, -2], keepdim=True)
+    # wt[N, aa_seq, k, 1, 1]*att[N, aa_seq, 1, 1, 64] => [N, aa_seq, k, 64]
+    # attention_coefficients_final = tf.reduce_sum(tf.expand_dims(
+    #     graph_weights, axis=-1) * K.exp(attention_coefficients), axis=-2)
+    attention_coefficients_final = torch.sum(
+      graph_weights.unsqueeze(dim=-1) * torch.exp(attention_coefficients), dim=-2)
+    # [N, aa_seq, k, 64] / [N, aa_seq, 1, 64] + eps
+    # attention_coefficients_final /= tf.reduce_sum(
+    #     tf.abs(attention_coefficients_final), axis=-2, keep_dims=True) + self.epsilon
+    attention_coefficients_final /= torch.sum(
+      torch.abs(attention_coefficients_final), dim=-2, keepdim=True) + epsilon
+
+    # here: max_pool=>[64], wt+exp=>[k,64]
+    # [N, aa_seq, k, 1, 64]*[N, aa_seq, k, 1, 64]=>[N,s,k,1,64]=reduce_sum(k)=>[N,s,1,64]=>[N,s,64]
+    # output_final = tf.reshape(tf.reduce_sum(node_outputs * tf.expand_dims(
+    #     attention_coefficients_final, axis=-2), axis=2), [-1, self.Lmax, self.nfeatures_output * self.nheads])
+    output_final = node_outputs * attention_coefficients_final.unsqueeze(dim=-2)
+    output_final = torch.sum(output_final, dim=-2).reshape(-1, self.Lmax, self.nfeatures_output * self.nheads)
+
+    return [output_final, attention_coefficients_final]
 
 
 class EmbeddingOuterProduct(nn.Module):
@@ -66,9 +116,11 @@ class LocalNeighborhood(nn.Module):
       self.first_format.append('index')
       self.second_format.append('index')
 
-
+  # inputs: indices1[N,s1,1], indices2[N,s2,1], attr1[N,s1,h], attr2[N,s2,h]
+  # outputs:
   def forward(self, inputs):
     if 'index' in self.first_format:
+      # [bs, s1, 1]
       first_index = inputs[self.first_format.index('index')]
     else:
       first_index = None
@@ -76,9 +128,13 @@ class LocalNeighborhood(nn.Module):
       if self.self_neighborhood:
         second_index = first_index
       else:
+        # [bs, s2, 1]
         second_index = inputs[len(self.first_format)+self.second_format.index('index')]
     else:
       second_index = None
+
+    assert first_index.shape[0] == second_index.shape[0]
+    batch_size = first_index.shape[0]
 
     # list( [bs, s2, h] )
     second_attributes = inputs[-self.nattributes:]
@@ -99,15 +155,27 @@ class LocalNeighborhood(nn.Module):
       # attribute = attribute.view(-1, attr_shape[-1]) # [bs*s2, h]
       # attribute[neighbors]
       
+      assert attr_shape[0] == batch_size
       neighbors_attr_batch = []
-      for i in range(attr_shape[0]):
+      for i in range(batch_size):
         # attribute = attribute.view(attr_shape[1], 1, attr_shape[-1])
-        neighbors_attr = attribute[i][neighbors[i], :] # [s1, k, h]
+        neighbors_attr = attribute[i, neighbors[i], :] # [s1, k, h]
         neighbors_attr_batch.append(neighbors_attr.unsqueeze(dim=0)) # [1, s1, k, h]
       neighbors_attr_batch = neighbors_attr_batch.concat(dim=0) # [bs, s1, k, h]
       neighbors_attributes.append(neighbors_attr_batch)
       
+    neighbor_coordinates = []
+    
+    neighbor_second_indices = []
+    for i in range(batch_size):
+      # [s2, 1] => [s1, k, 1] => [1, s1, k, 1]
+      neighbor_second_indices.append(
+        second_index[i, neighbors[i], :].unsqueeze(dim=0) )
+    neighbor_second_indices = neighbor_second_indices.concat(dim=0) # [bs, s1, k, 1]
 
+    index_distance = first_index.unsqueeze(dim=-2) - neighbor_second_indices
+    index_distance = torch.abs(index_distance.type_as(torch.float32))
+    neighbor_coordinates.append(index_distance)
 
-
-    return input
+    output = [neighbor_coordinates] + neighbors_attributes
+    return output

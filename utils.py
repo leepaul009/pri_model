@@ -431,6 +431,8 @@ def logging(*inputs, prob=1.0, type='1', is_json=False, affi=True, sep=' ', to_s
             print(*tuple(inputs), file=fout, sep=sep)
             print(file=fout)
 
+def de_merge_tensors(tensor: Tensor, lengths):
+    return [tensor[i, :lengths[i]] for i in range(len(lengths))]
 
 def merge_tensors(tensors: List[torch.Tensor], device, hidden_size=None) -> Tuple[Tensor, List[int]]:
     """

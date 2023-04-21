@@ -41,12 +41,12 @@ def process_chain_without_coordinates(chain):
     if it in list_aa or it.upper() in list_aa] # check if aa not in list_aa
   return np.array(chain_by_int)
 
-def pri_get_instance(input, args):
+def pri_get_instance(input_complex, args):
   mapping = {}
 
-  prot_chain = input["protein_sequence"] # string
-  rdna_seq = input["nucleotide_sequence"] # string
-  label_dG = input['dG']
+  prot_chain = input_complex["protein_sequence"] # string
+  rdna_seq = input_complex["nucleotide_sequence"] # string
+  label_dG = input_complex['dG']
   # seq_by_int = [aa_to_index[it] # list_aa.index(it) 
   #   if it in list_aa else it.upper() # handle lower case of aa
   #   for it in prot_seq 
@@ -67,8 +67,12 @@ def pri_get_instance(input, args):
   for it in chain_by_int: # per residue
     aa = list_aa[it]
     num_atoms = len(list(dictionary_covalent_bonds[aa].keys()))
+    # [num_atoms,]
     atom_type_per_aa = np.array([list_atoms.index(atom) for atom in dictionary_covalent_bonds[aa].keys()])
     atom_mass_per_aa = np.array([atom_type_mass[list_atoms.index(atom)] for atom in dictionary_covalent_bonds[aa].keys()])
+    
+    atom_type_per_aa = atom_type_per_aa.reshape(-1,1) # [num_atoms, 1]
+    atom_mass_per_aa = atom_mass_per_aa.reshape(-1,1) # [num_atoms, 1]
     
     atom_type_per_aa = remove_nan(atom_type_per_aa)
     atom_mass_per_aa = remove_nan(atom_mass_per_aa)
@@ -82,7 +86,7 @@ def pri_get_instance(input, args):
   atom_indices = np.concatenate(atom_indices, axis=0)
 
   # residues
-  aa_attributes = remove_nan(aa_attributes, padding_value=0.) # [seq_aa, 20]
+  aa_attributes = remove_nan(aa_attributes, padding_value=0.) # [num_aa, 20]
   # atoms
   # atom_attributes = remove_nan(atom_attributes, padding_value=0.) # [seq_atoms,]
   # atom_mass_attributes = remove_nan(atom_mass_attributes, padding_value=0.)
@@ -96,9 +100,9 @@ def pri_get_instance(input, args):
   #   eval_time=30,
   # ))
   mapping.update(dict(
-    aa_attributes = aa_attributes,
+    aa_attributes = aa_attributes, # [num_aa, 20]
     aa_indices = aa_indices,
-    atom_attributes = atom_attributes,
+    atom_attributes = atom_attributes, # list[num_atoms,] type=int
     # atom_mass_attributes = atom_mass_attributes,
     atom_indices = atom_indices,
     label = label_dG,
