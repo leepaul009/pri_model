@@ -8,9 +8,9 @@ from torch import Tensor, nn
 from torch.nn import functional as F
 
 
-class EmbeddingOuterProduct(nn.Module):
+class AttentionLayer(nn.Module):
   def __init__(self, config):
-    super(EmbeddingOuterProduct, self).__init__()
+    super(AttentionLayer, self).__init__()
     self.config = config
     self.epsilon = 1e-6
 
@@ -59,7 +59,7 @@ class EmbeddingOuterProduct(nn.Module):
 
     return [output_final, attention_coefficients_final]
 
-
+# G(x) * a + G(x) + bias
 class EmbeddingOuterProduct(nn.Module):
   def __init__(self, config):
     super(EmbeddingOuterProduct, self).__init__()
@@ -88,6 +88,7 @@ class EmbeddingOuterProduct(nn.Module):
       activity += self.bias.reshape(1, 1, -1)
     return activity
 
+
 def distance(coordinates1,coordinates2,squared=False,ndims=3):
   # D = (tf.expand_dims(coordinates1[...,0],axis=-1) - tf.expand_dims(coordinates2[...,0],axis=-2) )**2
   # for n in range(1,ndims):
@@ -101,6 +102,7 @@ def distance(coordinates1,coordinates2,squared=False,ndims=3):
     D = torch.sqrt(D)
   return D
 
+# search neighbors
 class LocalNeighborhood(nn.Module):
   def __init__(self, config,
       Kmax=10, coordinates=['index_distance'],

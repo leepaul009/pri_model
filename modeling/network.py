@@ -20,5 +20,21 @@ class NeighborhoodEmbedding(nn.Module):
     return inputs
 
 
+class PriNet(nn.Module):
+  def __init__(self, 
+               config, 
+               Lmax_aa=800,
+               Lmax_atom=None,
+               ):
+    super(PriNet, self).__init__()
+    if Lmax_atom is None:
+      Lmax_atom = 9 * Lmax_aa
+    # Lmax_nc, Lmax_nc_atom
+    
 
+  def forward(self, inputs):
+
+
+
+    return inputs
 

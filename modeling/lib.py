@@ -76,7 +76,7 @@ class GlobalGraph(nn.Module):
         After this function, 1 turns to 0, 0 turns to -10000.0
         Because the -10000.0 will be fed into softmax and -10000.0 can be thought as 0 in softmax.
         """
-        extended_attention_mask = attention_mask.unsqueeze(1)
+        extended_attention_mask = attention_mask.unsqueeze(1) # [bs, 1, seq, seq]
         extended_attention_mask = (1.0 - extended_attention_mask) * -10000.0
         return extended_attention_mask
 
@@ -89,6 +89,7 @@ class GlobalGraph(nn.Module):
         return x.permute(0, 2, 1, 3)
     
     # hidden_states shape=[bs, seq, hidden], where bs is either batch size or residues number
+    # attention_mask shape=[bs, seq, seq]
     def forward(self, 
                 hidden_states, 
                 attention_mask=None, 
@@ -111,6 +112,7 @@ class GlobalGraph(nn.Module):
             attention_scores = attention_scores + self.get_extended_attention_mask(attention_mask)
         # if utils.args.attention_decay and utils.second_span:
         #     attention_scores[:, 0, 0, 0] = attention_scores[:, 0, 0, 0] - self.attention_decay
+        # mask item is -10000 for attention_scores, softmax return 0
         attention_probs = nn.Softmax(dim=-1)(attention_scores)
         # if utils.args.visualize and mapping is not None:
         #     for i, each in enumerate(attention_probs.tolist()):
@@ -182,6 +184,7 @@ class CrossAttention(GlobalGraph):
 class GlobalGraphRes(nn.Module):
     def __init__(self, hidden_size):
         super(GlobalGraphRes, self).__init__()
+        # internal dim = hidden/2
         self.global_graph = GlobalGraph(hidden_size, hidden_size // 2)
         self.global_graph2 = GlobalGraph(hidden_size, hidden_size // 2)
 

@@ -195,9 +195,18 @@ class GraphNet(nn.Module):
                 aa_attributes, aa_indices, atom_attributes, atom_indices,
                 device, batch_size)
         
+        # [bs, max(aa+nc), h], inputs_lengths: list of actual len_aa+nc
+        inputs, inputs_lengths = utils.merge_tensors(element_states_batch, device=device)
+        max_seq_num = max(inputs_lengths)
+        attention_mask = torch.zeros([batch_size, max_seq_num, max_seq_num], device=device)
+        for i, length in enumerate(inputs_lengths):
+            attention_mask[i][:length][:length].fill_(1)
+        
+        # global_graph: GlobalGraphRes
+        hidden_states = self.global_graph(inputs, attention_mask, mapping)
 
 
-
+        ###########
         matrix = utils.get_from_mapping(mapping, 'matrix')
         # vectors of i_th element is matrix[polyline_spans[i]]
         polyline_spans = utils.get_from_mapping(mapping, 'polyline_spans')
