@@ -41,6 +41,10 @@ def process_chain_without_coordinates(chain):
     if it in list_aa or it.upper() in list_aa] # check if aa not in list_aa
   return np.array(chain_by_int)
 
+# input:
+#   input_complex: one row of data
+# output:
+#   a dict containing data of one prot complex
 def pri_get_instance(input_complex, args):
   mapping = {}
 
@@ -144,11 +148,13 @@ class PriDataset(torch.utils.data.Dataset):
         res = []
         dis_list = []
         while True:
+          # get one item(one row) from queue
           data_item = queue.get()
           if data_item is None:
               break
           # with open(file, "r", encoding='utf-8') as fin:
           #     lines = fin.readlines()[1:]
+          # instance: dict
           instance = pri_get_instance(data_item, args)
           if instance is not None:
               data_compress = zlib.compress(pickle.dumps(instance))
@@ -163,9 +169,10 @@ class PriDataset(torch.utils.data.Dataset):
           each.start()
       # res = pool.map_async(calc_ex_list, [queue for i in range(args.core_num)])
       for i in range(num_lines):
-          assert data_frame.loc[i] is not None
-          queue.put(data_frame.loc[i])
-          pbar.update(1)
+        assert data_frame.loc[i] is not None
+        # insert one row into queue
+        queue.put(data_frame.loc[i])
+        pbar.update(1)
 
       # necessary because queue is out-of-order
       while not queue.empty():
@@ -176,10 +183,11 @@ class PriDataset(torch.utils.data.Dataset):
 
       pbar = tqdm(total=num_lines)
       for i in range(num_lines):
-          t = queue_res.get()
-          if t is not None:
-              self.ex_list.append(t)
-          pbar.update(1)
+        #
+        t = queue_res.get()
+        if t is not None:
+            self.ex_list.append(t)
+        pbar.update(1)
       pbar.close()
       pass
 
@@ -255,6 +263,7 @@ if __name__ == '__main__':
 
   train_dataset = PriDataset(args, args.train_batch_size, to_screen=False)
   train_sampler = DistributedSampler(train_dataset, num_replicas=get_world_size(), rank=get_rank())
+  # batch_list_to_batch_tensors collect one batch of inputs as List[Dict]
   train_dataloader = torch.utils.data.DataLoader(
     train_dataset, sampler=train_sampler,
     batch_size=args.train_batch_size // get_world_size(),

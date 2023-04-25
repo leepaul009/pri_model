@@ -6,6 +6,28 @@ import sys
 import torch
 from torch import Tensor, nn
 from torch.nn import functional as F
+from modeling.lib import MLP, GlobalGraph, LayerNorm, CrossAttention, GlobalGraphRes, TimeDistributed
+
+
+class AttributeEmbedding(nn.Module):
+  def __init__(self, in_features, out_features, activation=None, norm=False):
+    super(AttributeEmbedding, self).__init__()
+    self.activation = activation
+    self.norm = norm
+    self.layer = nn.Linear(in_features=in_features, out_features=out_features, bias=False)
+    self.layer = TimeDistributed(self.layer)
+    if self.norm:
+      self.layer_norm = LayerNorm(out_features)
+
+  def forward(self, inputs : Tensor) -> Tensor:
+    outputs = self.layer(inputs) # [bs, seq, h]->[bs, seq, h]
+    if self.norm:
+      outputs = self.layer_norm(outputs)
+    if self.activation == 'relu':
+      outputs = F.relu(outputs)
+    else: # TODO: involve more activation
+      NotImplemented
+    return outputs
 
 
 class AttentionLayer(nn.Module):

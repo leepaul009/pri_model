@@ -7,6 +7,40 @@ from torch import nn, Tensor
 
 # import utils
 
+class TimeDistributed(nn.Module):
+    def __init__(self, module, batch_first=False):
+        super(TimeDistributed, self).__init__()
+        self.module = module
+        self.batch_first = batch_first
+
+    def forward(self, x):
+        if len(x.size()) <= 2:
+            return self.module(x)
+        # Squash samples and timesteps into a single axis
+        x_reshape = x.contiguous().view(-1, x.size(-1))  # (samples * timesteps, input_size)
+        y = self.module(x_reshape)
+        # We have to reshape Y
+        if self.batch_first:
+            y = y.contiguous().view(x.size(0), -1, y.size(-1))  # (samples, timesteps, output_size)
+        else:
+            y = y.view(-1, x.size(1), y.size(-1))  # (timesteps, samples, output_size)
+        return y
+
+
+class Dense(nn.Module):
+    def __init__(self, in_features, out_features, use_bias=True, activation=None, device=None, dtype=None):
+        super(Dense, self).__init__()
+        self.activation = activation
+        self.linear = torch.nn.Linear(in_features, out_features, bias=use_bias)
+        
+    def forward(self, hidden_states):
+        hidden_states = self.linear(hidden_states)
+        if self.activation == 'relu':
+            hidden_states = torch.nn.functional.relu(hidden_states)
+        else: # TODO: apply other activation function
+            NotImplemented
+        return hidden_states
+
 
 class LayerNorm(nn.Module):
     r"""
