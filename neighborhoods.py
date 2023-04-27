@@ -7,15 +7,185 @@ import torch
 from torch import Tensor, nn
 from torch.nn import functional as F
 
+def gather_nd_torch(params, indices, batch_dim=1):
+    """ A PyTorch porting of tensorflow.gather_nd
+    This implementation can handle leading batch dimensions in params, see below for detailed explanation.
+
+    The majority of this implementation is from Michael Jungo @ https://stackoverflow.com/a/61810047/6670143
+    I just ported it compatible to leading batch dimension.
+
+    Args:
+      params: a tensor of dimension [b1, ..., bn, g1, ..., gm, c].
+      indices: a tensor of dimension [b1, ..., bn, x, m]
+      batch_dim: indicate how many batch dimension you have, in the above example, batch_dim = n.
+
+    Returns:
+      gathered: a tensor of dimension [b1, ..., bn, x, c].
+
+    Example:
+    >>> batch_size = 5
+    >>> inputs = torch.randn(batch_size, batch_size, batch_size, 4, 4, 4, 32)
+    >>> pos = torch.randint(4, (batch_size, batch_size, batch_size, 12, 3))
+    >>> gathered = gather_nd_torch(inputs, pos, batch_dim=3)
+    >>> gathered.shape
+    torch.Size([5, 5, 5, 12, 32])
+
+    >>> inputs_tf = tf.convert_to_tensor(inputs.numpy())
+    >>> pos_tf = tf.convert_to_tensor(pos.numpy())
+    >>> gathered_tf = tf.gather_nd(inputs_tf, pos_tf, batch_dims=3)
+    >>> gathered_tf.shape
+    TensorShape([5, 5, 5, 12, 32])
+
+    >>> gathered_tf = torch.from_numpy(gathered_tf.numpy())
+    >>> torch.equal(gathered_tf, gathered)
+    True
+    """
+    batch_dims = params.size()[:batch_dim]  # [b1, ..., bn]
+    batch_size = np.cumprod(list(batch_dims))[-1]  # b1 * ... * bn
+    c_dim = params.size()[-1]  # c
+    grid_dims = params.size()[batch_dim:-1]  # [g1, ..., gm]
+    # indice_dims = indices.size()[batch_dim:-1]
+    n_indices = indices.size(-2)  # x
+    n_pos = indices.size(-1)  # m
+
+    # reshape leadning batch dims to a single batch dim
+    params = params.reshape(batch_size, *grid_dims, c_dim)
+    indices = indices.reshape(batch_size, n_indices, n_pos)
+    # indices = indices.reshape(batch_size, *indice_dims, n_pos)
+
+    # build gather indices
+    # gather for each of the data point in this "batch"
+    batch_enumeration = torch.arange(batch_size).unsqueeze(1)
+    # batch_pad_dim = torch.Size([1 for _ in range(len(indice_dims))])
+    # batch_enumeration = torch.arange(batch_size).reshape(-1, *batch_pad_dim)
+    gather_dims = [indices[:, :, i] for i in range(len(grid_dims))]
+    # gather_dims = [indices[..., i] for i in range(len(grid_dims))]
+    gather_dims.insert(0, batch_enumeration)
+    gathered = params[gather_dims]
+
+    # reshape back to the shape with leading batch dims
+    gathered = gathered.reshape(*batch_dims, n_indices, c_dim)
+    return gathered
+
+
+def gather_nd_torch_ex(params, indices, batch_dim=1):
+    """ A PyTorch porting of tensorflow.gather_nd
+    This implementation can handle leading batch dimensions in params, see below for detailed explanation.
+
+    The majority of this implementation is from Michael Jungo @ https://stackoverflow.com/a/61810047/6670143
+    I just ported it compatible to leading batch dimension.
+
+    Args:
+      params: a tensor of dimension [b1, ..., bn, g1, ..., gm, c].
+      indices: a tensor of dimension [b1, ..., bn, x1, ..., xQ, m]
+      batch_dim: indicate how many batch dimension you have, in the above example, batch_dim = n.
+
+    Returns:
+      gathered: a tensor of dimension [b1, ..., bn, x1, ..., xQ, c].
+
+    Example:
+    >>> batch_size = 5
+    >>> inputs = torch.randn(batch_size, batch_size, batch_size, 4, 4, 4, 32)
+    >>> pos = torch.randint(4, (batch_size, batch_size, batch_size, 12, 3))
+    >>> gathered = gather_nd_torch(inputs, pos, batch_dim=3)
+    >>> gathered.shape
+    torch.Size([5, 5, 5, 12, 32])
+
+    >>> inputs_tf = tf.convert_to_tensor(inputs.numpy())
+    >>> pos_tf = tf.convert_to_tensor(pos.numpy())
+    >>> gathered_tf = tf.gather_nd(inputs_tf, pos_tf, batch_dims=3)
+    >>> gathered_tf.shape
+    TensorShape([5, 5, 5, 12, 32])
+
+    >>> gathered_tf = torch.from_numpy(gathered_tf.numpy())
+    >>> torch.equal(gathered_tf, gathered)
+    True
+    """
+    batch_dims = params.size()[:batch_dim]  # [b1, ..., bn]
+    batch_size = np.cumprod(list(batch_dims))[-1]  # b1 * ... * bn
+    c_dim = params.size()[-1]  # c
+    grid_dims = params.size()[batch_dim:-1]  # [g1, ..., gm]
+    indice_dims = indices.size()[batch_dim:-1] # [x1, .. xQ]
+    # n_indices = indices.size(-2)  # x
+    n_pos = indices.size(-1)  # m
+
+    # reshape leadning batch dims to a single batch dim
+    params = params.reshape(batch_size, *grid_dims, c_dim)
+    # indices = indices.reshape(batch_size, n_indices, n_pos)
+    indices = indices.reshape(batch_size, *indice_dims, n_pos)
+
+    # build gather indices
+    # gather for each of the data point in this "batch"
+    # batch_enumeration = torch.arange(batch_size).unsqueeze(1)
+    batch_pad_dim = torch.Size([1 for _ in range(len(indice_dims))])
+    batch_enumeration = torch.arange(batch_size).reshape(-1, *batch_pad_dim) # [bs, 1<1>,... 1<Q>]
+    # gather_dims = [indices[:, :, i] for i in range(len(grid_dims))]
+    gather_dims = [indices[..., i] for i in range(len(grid_dims))]
+    gather_dims.insert(0, batch_enumeration)
+    gathered = params[gather_dims]
+
+    # reshape back to the shape with leading batch dims
+    # gathered = gathered.reshape(*batch_dims, n_indices, c_dim)
+    gathered = gathered.reshape(*batch_dims, *indice_dims, c_dim)
+    return gathered
+
+
 
 class FrameBuilder(nn.Module):
-  def __init__(self, config):
+  def __init__(self, config, order='1', dipole=False):
     super(FrameBuilder, self).__init__()
+    self.support_masking = True
+    self.epsilon = torch.tensor(1e-6)
+    self.order = order # atom frame use 2
+    self.dipole = dipole # false
+
+    self.xaxis = torch.tensor(np.array([[1, 0, 0]], dtype=np.float32))
+    self.yaxis = torch.tensor(np.array([[0, 1, 0]], dtype=np.float32))
+    self.zaxis = torch.tensor(np.array([[0, 0, 1]], dtype=np.float32))
+  """
+  input:
+    inputs: 
+      points Tensor=(N, all_atoms, 3), 
+      triplets(atom_coord:x/y/z) Tensor=(N, all_hatoms?, 3), each item is point index
+    mask: Tensor=(N, all_atoms) Tensor=(N, all_hatoms?)
+  """
+  def forward(self, inputs, mask=None):
+    points, triplets = inputs
+    # clip value of each item of triplets in range of 0~points.shape[-2],
+    # as each item of triplets indicate which point(in points) the item belong
+    triplets = torch.clamp(triplets, min=0, max=points.shape[-2]-1)
 
 
-  def forward(self, inputs):
+    delta_10 = gather_nd_torch(points, triplets[:, :, 1:2], batch_dims=1) - gather_nd_torch(points, triplets[:, :, 0:1], batch_dims=1)
+    delta_20 = gather_nd_torch(points, triplets[:, :, 2:3], batch_dims=1) - gather_nd_torch(points, triplets[:, :, 0:1], batch_dims=1)
 
-    return inputs
+    if self.order in ['2','3']: 
+      delta_10,delta_20 = delta_20,delta_10
+    
+    centers = gather_nd_torch(points, triplets[:, :, 0:1], batch_dims=1)
+    zaxis = (delta_10 + self.epsilon * torch.reshape(self.zaxis,[1,1,3])) / (torch.sqrt(torch.sum(delta_10 ** 2, dim=-1, keepdim=True) ) + self.epsilon)
+
+    yaxis = torch.linalg.cross(zaxis, delta_20, dim=-1)
+    yaxis = (yaxis + self.epsilon * torch.reshape(self.yaxis,[1,1,3]) ) / (torch.sqrt(torch.sum(yaxis ** 2, dim=-1, keepdim=True) ) + self.epsilon)
+
+    xaxis = torch.linalg.cross(yaxis, zaxis, dim=-1)
+    xaxis = (xaxis + self.epsilon * torch.reshape(self.xaxis,[1,1,3]) ) / (torch.sqrt(torch.sum(xaxis ** 2, dim=-1, keepdim=True)) + self.epsilon)
+
+    # TODO: check if following code is necessary
+    if self.order == '3':
+      xaxis,yaxis,zaxis = zaxis,xaxis,yaxis
+
+    if self.dipole:
+      # TODO: check if following code is necessary
+      dipole = gather_nd_torch(points, triplets[:, :, 3:4], batch_dims=1) - gather_nd_torch(points, triplets[:, :, 0:1],batch_dims=1)
+      dipole = (dipole + self.epsilon * torch.reshape(self.zaxis, [1,1,3])) / (torch.sqrt(torch.sum(dipole ** 2, dim=-1, keepdim=True) ) + self.epsilon)
+      frames = torch.stack([centers,xaxis,yaxis,zaxis,dipole],dim=-2)
+    else:
+      frames = torch.stack([centers,xaxis,yaxis,zaxis],dim=-2) # (batch, n_aa/atom[stack_dim], 3)
+
+    if mask not in [None,[None,None]]:
+      frames *= mask[-1].type(torch.float32).unsqueeze(dim=-1).unsqueeze(dim=-1)
+    return frames
 
 
 # coordinates1/coordinates2: [N, seq, hidden]
@@ -69,6 +239,18 @@ class LocalNeighborhood(nn.Module):
     self.epsilon = 1e-10
     self.big_distance = 1000.
     self.nrotations = nrotations
+
+    if self.nrotations > 1:
+      phis = np.arange(self.nrotations) / self.nrotations * 2 * np.pi
+      rotations = np.zeros([self.nrotations, 3, 3], dtype=np.float32)
+      # rotatioin along z-aixs
+      rotations[:, 0, 0] = np.cos(phis)
+      rotations[:, 1, 1] = np.cos(phis)
+      rotations[:, 1, 0] = np.sin(phis)
+      rotations[:, 0, 1] = -np.sin(phis)
+      rotations[:, 2, 2] = 1
+      # self.rotations = torch.tensor(rotations)
+      self.rotations = rotations
 
 
   # inputs: indices1[N,s1,1], indices2[N,s2,1], attr1[N,s1,h], attr2[N,s2,h]
@@ -168,6 +350,29 @@ class LocalNeighborhood(nn.Module):
     self.epsilon = torch.tensor(self.epsilon).to(device)
     neighbor_coordinates = []
     
+    if 'euclidian' in self.coordinates:
+      nei = neighbors.unsqueeze(dim=-1)
+      # (bs, s1, k, 3) - (bs, s1, 1, 3)
+      temp = gather_nd_torch_ex(second_center, nei, batch_dim=1) - first_center.unsqueeze(dim=-2)
+      # (bs, s1, k, 1, 3)
+      temp = temp.unsqueeze(dim=-2)
+      # (bs, s1, 1, 4->3, 3) => (bs, s1, k, 3, 3)
+      temp = temp * first_frame[:,:,1:4].unsqueeze(dim=-3)
+      euclidian_coordinates = torch.sum(temp, dim=-1) # (bs, s1, k, 3)
+
+      if self.nrotations > 1:
+        # rotations: Tensor=(nrotations, 3, 3)
+        rotations = torch.tensor(self.rotations).to(device)
+        # dot product with last dim == matmul: roation_mat(3,3).vec(3)
+        # |0 -1 0| |1| |0|
+        # |1  0 0|.|0|=|1|
+        # |0  0 1| |0| |0|， when phi=90 or pi/2, equal to dot product with rmat's last dim
+        # (bs, s1, k, 3) dot (nr, 3, 3) => (bs, s1, k, nr, 3)
+        euclidian_coordinates = torch.tensordot(euclidian_coordinates, rotations, dims=([-1],[-1]))
+        neighbors_attributes = [nei_att.unsqueeze(dim=-2) for nei_att in neighbors_attributes]
+
+      neighbor_coordinates.append(euclidian_coordinates)
+
     # if 'euclidian' in self.coordinates:
     if 'distance' in self.coordinates:
       # distance_square=(bs, s1, s2), neighbors=(bs, s1, k)

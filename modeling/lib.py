@@ -122,14 +122,20 @@ class GlobalGraph(nn.Module):
         # (batch, head, max_vector_num, head_size)
         return x.permute(0, 2, 1, 3)
     
-    # hidden_states shape=[bs, seq, hidden], where bs is either batch size or residues number
-    # attention_mask shape=[bs, seq, seq]
+    """
+    inputs:
+        hidden_states: Tensor=(bs, seq, hidden)
+            case1: bs=batch_size, seq=num_aa
+            case2: bs=num_aa, seq=num_atoms_in_curr_aa
+        attention_mask: Tensor=(bs, seq, seq)
+    outputs:
+        Tensor=(bs, seq, hidden), dimension same to input hidden_states
+    """
     def forward(self, 
                 hidden_states, 
                 attention_mask=None, 
                 mapping=None, 
                 return_scores=False):
-        
         mixed_query_layer = self.query(hidden_states)
         mixed_key_layer = nn.functional.linear(hidden_states, self.key.weight)
         mixed_value_layer = self.value(hidden_states)
