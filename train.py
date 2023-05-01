@@ -14,10 +14,13 @@ import torch
 
 from torch.utils.data import RandomSampler, SequentialSampler
 from torch.utils.data.distributed import DistributedSampler
+from torch.nn.parallel import DistributedDataParallel
 
 from comm import get_world_size, get_rank, is_main_process, synchronize, all_gather, reduce_dict
 import utils
 from dataset_pri import PriDataset
+
+from modeling.graphnet import GraphNet
 
 def main2():
 
@@ -68,6 +71,32 @@ def main2():
     list_labels)  = dataset_utils.read_labels(dataset_location)
 
 
+
+def learning_rate_decay(args, i_epoch, optimizer, optimizer_2=None):
+  # utils.i_epoch = i_epoch
+
+  if 'set_predict' in args.other_params:
+      if not hasattr(args, 'set_predict_lr'):
+          args.set_predict_lr = 1.0
+      else:
+          args.set_predict_lr *= 0.9
+
+      if i_epoch > 0 and i_epoch % 5 == 0:
+          for p in optimizer.param_groups:
+              p['lr'] *= 0.3
+
+      if 'complete_traj-3' in args.other_params:
+          assert False
+
+  else:
+      if i_epoch > 0 and i_epoch % 5 == 0:
+          for p in optimizer.param_groups:
+              p['lr'] *= 0.3
+
+      if 'complete_traj-3' in args.other_params:
+          if i_epoch > 0 and i_epoch % 5 == 0:
+              for p in optimizer_2.param_groups:
+                  p['lr'] *= 0.3
 
 def save_ckpt(model, opt, save_dir, epoch, iter):
   if not os.path.exists(save_dir):
@@ -120,7 +149,7 @@ def val(model, device, args):
 def train_one_epoch(model, train_dataloader, optimizer, device, i_epoch, args):
   
   save_iters = 1000
-  save_dir = ''
+  save_dir = args.output_dir
 
   for step, batch in enumerate(train_dataloader):
     print("step {}, batch.type={}".format( step, type(batch) ))
@@ -131,11 +160,15 @@ def train_one_epoch(model, train_dataloader, optimizer, device, i_epoch, args):
     # break when meeting max iter
 
     loss, DE, _ = model(batch, device)
+    # del DE
+    loss = loss.type(torch.float32)
     loss.backward()
 
     optimizer.step()
     optimizer.zero_grad()
 
+    if is_main_process and step % 10 == 0:
+      print("epoch={} step={} loss={}".format(i_epoch, step, loss.item()))
     if is_main_process and step % save_iters == 0:
       save_ckpt(model, optimizer, save_dir, i_epoch, step)
 
@@ -150,6 +183,7 @@ def main():
 
 
   torch.cuda.set_device(args.local_rank)
+  device = torch.device('cuda', args.local_rank)
 
   distributed = False
   if distributed:
@@ -163,7 +197,32 @@ def main():
     batch_size=args.train_batch_size // get_world_size(),
     collate_fn=utils.batch_list_to_batch_tensors)
   
+  config = dict()
+  model = GraphNet(config, args)
+  model = model.cuda()
 
+
+  if distributed:
+    model = DistributedDataParallel(
+        model, 
+        find_unused_parameters=True,
+        device_ids=[args.local_rank], 
+        output_device=args.local_rank)
+
+  optimizer = torch.optim.Adam(model.parameters(), lr=args.learning_rate)
+
+  for i_epoch in range(int(args.num_train_epochs)):
+
+    learning_rate_decay(args, i_epoch, optimizer)
+    # get_rank
+    if is_main_process():
+      print('Epoch: {}/{}'.format(i_epoch, int(args.num_train_epochs)), end='  ')
+      print('Learning Rate = %5.8f' % optimizer.state_dict()['param_groups'][0]['lr'])
+
+    # TODO: more function
+    train_sampler.set_epoch(i_epoch)
+    
+    train_one_epoch(model, train_dataloader, optimizer, device, i_epoch, args)
 
 
 if __name__ == '__main__':

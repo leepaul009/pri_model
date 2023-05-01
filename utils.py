@@ -36,16 +36,18 @@ def add_argument(parser):
     parser.add_argument("--do_test",
                         action='store_true')
     parser.add_argument("--data_dir",
-                        default='train/data/',
+                        # default='train/data/',
+                        default='data/train/',
                         type=str)
     parser.add_argument("--data_dir_for_val",
-                        default='val/data/',
+                        # default='val/data/',
+                        default='data/val/',
                         type=str)
     parser.add_argument("--output_dir", default="tmp/", type=str)
     parser.add_argument("--log_dir", default=None, type=str)
     parser.add_argument("--temp_file_dir", default=None, type=str)
     parser.add_argument("--train_batch_size",
-                        default=64,
+                        default=32,
                         type=int,
                         help="Total batch size for training.")
 
@@ -92,7 +94,7 @@ def add_argument(parser):
                         type=float)
     parser.add_argument("--sub_graph_batch_size",
                         default=8000,
-                        type=int)
+                        type=int) # useless
     parser.add_argument("-d", "--distributed_training",
                         nargs='?',
                         default=8,
@@ -439,7 +441,9 @@ def merge_tensors(tensors: List[torch.Tensor], device, hidden_size=None) -> Tupl
     merge a list of tensors into a tensor
     """
     lengths = []
-    hidden_size = args.hidden_size if hidden_size is None else hidden_size
+    # hidden_size = args.hidden_size if hidden_size is None else hidden_size
+    if hidden_size is None:
+        hidden_size = tensors[0].shape[-1]
     for tensor in tensors:
         lengths.append(tensor.shape[0] if tensor is not None else 0)
     res = torch.zeros([len(tensors), max(lengths), hidden_size], device=device)

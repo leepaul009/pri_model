@@ -9,6 +9,7 @@ from torch import nn, Tensor
 from modeling.lib import MLP, GlobalGraph, LayerNorm, CrossAttention, GlobalGraphRes, TimeDistributed
 import utils
 
+from preprocessing.protein_chemistry import list_atoms
 
 class SubGraph(nn.Module):
     # config:
@@ -18,7 +19,7 @@ class SubGraph(nn.Module):
         
         # depth = config['depth']
         # hidden_size = config['hidden_size']
-
+        self.hidden_size = hidden_size
         self.layer_0 = MLP(hidden_size)
         self.layers = nn.ModuleList([GlobalGraph(hidden_size, num_attention_heads=2) 
                                      for _ in range(depth)])
@@ -49,10 +50,12 @@ class SubGraph(nn.Module):
         max_vector_num = hidden_states.shape[1] # do att along this dim
 
         attention_mask = torch.zeros(
-            [batch_size, max_vector_num, max_vector_num], device=device)
+            [batch_size, max_vector_num, max_vector_num], device=device) # atom case: [aa, max_atoms, max_atoms]
         
         if self.config['use_atom_embedding']:
             # [max_atoms,1] => [max_atoms,12]
+            if hidden_states.type is not torch.long:
+                hidden_states = hidden_states.type(torch.long).squeeze(-1)
             hidden_states = self.atom_emb_layer(hidden_states)
 
         hidden_states = self.layer_0(hidden_states)
@@ -79,7 +82,19 @@ class SubGraph(nn.Module):
         return torch.max(hidden_states, dim=1)[0], \
                torch.cat(utils.de_merge_tensors(hidden_states, lengths))
 
+class PredLoss(nn.Module):
+    def __init__(self, config):
+        super(PredLoss, self).__init__()
+        self.config = config
+        self.loss = nn.MSELoss()
 
+    def forward(self, pred: Tensor, target: Tensor):
+        """
+        pred=(N, 1)
+        target=(N, 1)
+        """
+        output = self.loss(pred, target)
+        return output
 
 class GraphNet(nn.Module):
     r"""
@@ -98,7 +113,7 @@ class GraphNet(nn.Module):
         self.hidden_size = hidden_size
         
         # depth:int, hidden_size:int, point_level-4-3:bool
-        atom_nfeatures = 12
+        atom_nfeatures = len(list_atoms) # 38
         self.atom_emb_layer = nn.Embedding(num_embeddings=atom_nfeatures + 1, 
                                            embedding_dim=args.hidden_size)
         
@@ -106,7 +121,7 @@ class GraphNet(nn.Module):
         # config['hidden_size'] = args.hidden_size
         config['point_level-4-3'] = True
         config['use_atom_embedding'] = True
-        config['atom_nfeatures'] = 12
+        config['atom_nfeatures'] = atom_nfeatures
         self.point_level_sub_graph = SubGraph(config, hidden_size // 2, args.sub_graph_depth)
         # self.point_level_cross_attention = CrossAttention(hidden_size)
 
@@ -136,7 +151,10 @@ class GraphNet(nn.Module):
         # nn.init.normal_(self.cls_score.weight, std=0.01)
         nn.init.normal_(self.reg_pred.weight, std=0.001)
         for l in [self.reg_pred]:
-            nn.init.constant_(l.bias, 0)
+            if l.bias is not None:
+                nn.init.constant_(l.bias, 0)
+        
+        self.loss = PredLoss(config)
 
     def forward_encode_sub_graph(
             self, 
@@ -193,7 +211,10 @@ class GraphNet(nn.Module):
 
         for i in range(batch_size):
             prot_feats = prot_states_batch[i] # [aa, h/2]
-            rdna_feats = rdna_states_batch[i] # [nc, h/2]
+            if len(rdna_states_batch) != 0:
+                rdna_feats = rdna_states_batch[i] # [nc, h/2]
+            else:
+                rdna_feats = prot_feats
             rdna_feats = rdna_feats + self.laneGCN_A2L(
                 rdna_feats.unsqueeze(0), prot_feats.unsqueeze(0)).squeeze(0)
             rdna_feats = rdna_feats + self.laneGCN_L2L(rdna_feats.unsqueeze(0)).squeeze(0)
@@ -218,9 +239,9 @@ class GraphNet(nn.Module):
         """
         input_list = []
         for i in range(batch_size):
-            tensor = torch.tensor(aa_attributes, device=device)
+            tensor = torch.tensor(aa_attributes[i], device=device)
             input_list.append(tensor)
-        aa_embedding, lengths = utils.merge_tensors(input_list, device=device) # [bs, max_n_aa, 20]
+        aa_embedding, lengths = utils.merge_tensors(input_list, device=device, hidden_size=20) # [bs, max_n_aa, 20]
         aa_embedding = self.aa_embeding_layer(aa_embedding) # [bs, max_n_aa, 20]->[bs, max_n_aa, h/2]
         aa_embedding = F.relu(aa_embedding)
 
@@ -254,7 +275,7 @@ class GraphNet(nn.Module):
         
 
         # [bs, max(n_aa), h], inputs_lengths: list of actual len_aa
-        inputs, inputs_lengths = utils.merge_tensors(element_states_batch, device=device)
+        inputs, inputs_lengths = utils.merge_tensors(element_states_batch, device=device, hidden_size=self.hidden_size//2)
 
         # create mask
         max_seq_num = max(inputs_lengths)
@@ -264,7 +285,7 @@ class GraphNet(nn.Module):
             attention_mask[i][:length][:length].fill_(1)
         
         # TODO: try different method to aggregate features rather than concat
-        # => [bs, max(n_aa), h]
+        # [bs, max(n_aa), h/2], [bs, max(n_aa), h/2]=> [bs, max(n_aa), h]
         inputs = torch.cat([aa_embedding, inputs], dim=-1) 
 
         # global_graph: GlobalGraphRes [bs, max(n_aa), h]
@@ -276,6 +297,11 @@ class GraphNet(nn.Module):
         # TODO: fine tune the structure of predicting score
         # [bs, h] => [bs, 1]
         outputs = self.reg_pred(hidden_states)
+        
+        labels = utils.get_from_mapping(mapping, 'label')
+        labels = torch.tensor(labels, device=device, dtype=torch.float32).reshape(-1, 1) # [bs, 1]
+
+        loss = self.loss(outputs, labels)
 
         #################################
         """
@@ -306,4 +332,4 @@ class GraphNet(nn.Module):
 
         return self.decoder(mapping, batch_size, lane_states_batch, inputs, inputs_lengths, hidden_states, device)
         """
-        return outputs
+        return loss, outputs, None
