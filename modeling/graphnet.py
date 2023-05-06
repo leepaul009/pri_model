@@ -144,6 +144,9 @@ class GraphNet(nn.Module):
         self.aa_embeding_layer = nn.Linear(in_features=20, out_features=hidden_size // 2, bias=False)
         self.aa_embeding_layer = TimeDistributed(self.aa_embeding_layer)
 
+        self.nc_embeding_layer = nn.Linear(in_features=4, out_features=hidden_size // 2, bias=False)
+        self.nc_embeding_layer = TimeDistributed(self.nc_embeding_layer)
+
         # TODO: if we 
         self.reg_pred = nn.Linear(in_features=hidden_size, out_features=1, bias=False)
 
@@ -161,6 +164,7 @@ class GraphNet(nn.Module):
             mapping: List[Dict], 
             atom_attributes, # List[List[np.ndarray]]
             atom_indices,
+            nc_embedding,
             # matrix: List[np.ndarray], 
             # polyline_spans: List[List[slice]],
             device, batch_size) -> Tuple[List[Tensor], List[Tensor]]:
@@ -204,32 +208,36 @@ class GraphNet(nn.Module):
             a, b = self.point_level_sub_graph(prot_atom_input_list_list[i])
             prot_states_batch.append(a)
 
+        # TODO: decide if we should use subgraph of rdna atoms
         rdna_states_batch = []
         for i in range(len(drna_atom_input_list_list)): # per chain
             a, b = self.point_level_sub_graph(drna_atom_input_list_list[i])
             rdna_states_batch.append(a)
+
+
 
         for i in range(batch_size):
             prot_feats = prot_states_batch[i] # [aa, h/2]
             if len(rdna_states_batch) != 0:
                 rdna_feats = rdna_states_batch[i] # [nc, h/2]
             else:
-                rdna_feats = prot_feats
+                # rdna_feats = prot_feats
+                rdna_feats = nc_embedding[i] # (n_nc, h/2)
             rdna_feats = rdna_feats + self.laneGCN_A2L(
                 rdna_feats.unsqueeze(0), prot_feats.unsqueeze(0)).squeeze(0)
             rdna_feats = rdna_feats + self.laneGCN_L2L(rdna_feats.unsqueeze(0)).squeeze(0)
             prot_feats = prot_feats + self.laneGCN_L2A(
                 prot_feats.unsqueeze(0), rdna_feats.unsqueeze(0)).squeeze(0)
-            # prot_states_batch[i] = torch.cat([prot_feats, rdna_feats]) # [aa+nc, h]
-            prot_states_batch[i] = prot_feats # [aa, h]
+            prot_states_batch[i] = torch.cat([prot_feats, rdna_feats]) # [aa+nc, h/2]
+            # prot_states_batch[i] = prot_feats # [aa, h/2]
 
         return prot_states_batch, rdna_states_batch
     
-    def attribute_embeding(
+    def aa_attribute_embeding(
             self,
             aa_attributes : List[np.ndarray], 
             # aa_indices,
-            device, batch_size) -> Tuple[Tensor, List[int]]:
+            device, batch_size) -> Tuple[List[Tensor], List[int]]:
         """
         inputs:
             aa_attributes: List[Tensor=(n_aa, 20)]
@@ -241,12 +249,35 @@ class GraphNet(nn.Module):
         for i in range(batch_size):
             tensor = torch.tensor(aa_attributes[i], device=device)
             input_list.append(tensor)
-        aa_embedding, lengths = utils.merge_tensors(input_list, device=device, hidden_size=20) # [bs, max_n_aa, 20]
+        aa_embedding, lengths = utils.merge_tensors(input_list, device=device) # [bs, max_n_aa, 20]
         aa_embedding = self.aa_embeding_layer(aa_embedding) # [bs, max_n_aa, 20]->[bs, max_n_aa, h/2]
         aa_embedding = F.relu(aa_embedding)
 
-        # return utils.de_merge_tensors(aa_embedding, lengths)
-        return aa_embedding, lengths
+        return utils.de_merge_tensors(aa_embedding, lengths), lengths
+        # return aa_embedding, lengths
+
+    def nc_attribute_embeding(
+            self,
+            nc_attributes : List[np.ndarray], 
+            # aa_indices,
+            device, batch_size) -> Tuple[List[Tensor], List[int]]:
+        """
+        inputs:
+            aa_attributes: List[Tensor=(n_aa, 20)]
+        outputs:
+            List[Tensor=(n_aa, h)]
+            Tensor=(bs, max(n_aa), h)
+        """
+        input_list = []
+        for i in range(batch_size):
+            tensor = torch.tensor(nc_attributes[i], device=device)
+            input_list.append(tensor)
+        nc_embedding, lengths = utils.merge_tensors(input_list, device=device) # [bs, max_n_nc, 4]
+        nc_embedding = self.nc_embeding_layer(nc_embedding) # [bs, max_n_nc, 4]->[bs, max_n_nc, h/2]
+        nc_embedding = F.relu(nc_embedding)
+
+        return utils.de_merge_tensors(nc_embedding, lengths), lengths
+        # return nc_embedding, lengths
 
     # @profile
     def forward(self, mapping: List[Dict], device):
@@ -260,22 +291,26 @@ class GraphNet(nn.Module):
         aa_indices = utils.get_from_mapping(mapping, 'aa_indices')
         atom_attributes = utils.get_from_mapping(mapping, 'atom_attributes') # List[List[np.ndarray=(n_atoms,)]]
         atom_indices = utils.get_from_mapping(mapping, 'atom_indices')
+        nc_attributes = utils.get_from_mapping(mapping, 'rdna_attributes') # List[np.ndarray=(n_nc, 4)]
 
         batch_size = len(aa_attributes)
 
-        # (bs, max(n_aa), h/2)
-        aa_embedding, _ = self.attribute_embeding(aa_attributes, device, batch_size)
-
-        # [bs, max(n_aa), h/2]
+        # list[Tensor=(n_aa, h/2)]
+        aa_embedding, _ = self.aa_attribute_embeding(aa_attributes, device, batch_size)
+        
+        # list[Tensor=(n_nc, h/2)]
+        nc_embedding, _ = self.nc_attribute_embeding(nc_attributes, device, batch_size)
+        
+        # [bs, max(n_aa+n_nc), h/2]
         element_states_batch, lane_states_batch =\
             self.forward_encode_sub_graph(
                 mapping, 
-                atom_attributes, atom_indices,
+                atom_attributes, atom_indices, nc_embedding,
                 device, batch_size)
         
 
-        # [bs, max(n_aa), h], inputs_lengths: list of actual len_aa
-        inputs, inputs_lengths = utils.merge_tensors(element_states_batch, device=device, hidden_size=self.hidden_size//2)
+        # [bs, max(n_aa+n_nc), h/2], inputs_lengths: list of actual len_aa+len_nc of each batch
+        inputs, inputs_lengths = utils.merge_tensors(element_states_batch, device=device)
 
         # create mask
         max_seq_num = max(inputs_lengths)
@@ -285,8 +320,15 @@ class GraphNet(nn.Module):
             attention_mask[i][:length][:length].fill_(1)
         
         # TODO: try different method to aggregate features rather than concat
-        # [bs, max(n_aa), h/2], [bs, max(n_aa), h/2]=> [bs, max(n_aa), h]
-        inputs = torch.cat([aa_embedding, inputs], dim=-1) 
+        complex_embeddings = []
+        for i in range(batch_size):
+            complex_emb = torch.cat([aa_embedding[i], nc_embedding[i]]) # (n_aa+n_nc, h/2)
+            complex_embeddings.append(complex_emb)
+        # [bs, max(n_aa+n_nc), h/2], inputs_lengths: list of actual len_aa+len_nc of each batch
+        complex_embeddings, _ = utils.merge_tensors(complex_embeddings, device=device)
+
+        # [bs, max(n_aa+n_nc), h/2], [bs, max(n_aa+n_nc), h/2]=> [bs, max(n_aa+n_nc), h]
+        inputs = torch.cat([complex_embeddings, inputs], dim=-1) 
 
         # global_graph: GlobalGraphRes [bs, max(n_aa), h]
         hidden_states = self.global_graph(inputs, attention_mask, mapping)

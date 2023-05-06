@@ -96,6 +96,21 @@ def pri_get_instance(input_complex, args):
   # atom_mass_attributes = remove_nan(atom_mass_attributes, padding_value=0.)
   atom_indices = remove_nan(atom_indices, padding_value=0.)
 
+  rdna_map = {'A':0, 'T':1, 'C':2, 'G':3, 'U':3}
+  rdna_seqs = None
+  if '|' in rdna_seq:
+    rdna_seqs = rdna_seq.split('|')
+  else:
+    rdna_seqs = [rdna_seq]
+  
+  rdna_attributes = list()
+  for seq in rdna_seqs:
+    seq_int = [rdna_map[x] for x in seq]
+    seq_int = np.array(seq_int)
+    seq_mat = binarize_categorical(seq_int, 4).astype(np.float32)
+    rdna_attributes.append(seq_mat)
+  rdna_attributes = np.concatenate(rdna_attributes)
+
   # mapping.update(dict(
   #   matrix=matrix, # feat [n_nodes(traj + map), 128]
   #   labels=np.array(labels).reshape([30, 2]), # gt traj
@@ -109,6 +124,7 @@ def pri_get_instance(input_complex, args):
     atom_attributes = atom_attributes, # list[num_atoms,] type=int
     # atom_mass_attributes = atom_mass_attributes,
     atom_indices = atom_indices,
+    rdna_attributes = rdna_attributes,
     label = label_dG,
   ))
   return mapping
