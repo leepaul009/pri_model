@@ -173,25 +173,6 @@ class GraphNet(nn.Module):
         :param polyline_spans: vectors of i_th element is matrix[polyline_spans[i]]
         :return: hidden states of all elements and hidden states of lanes
         """
-
-        """
-        input_list_list = []
-        map_input_list_list = []
-        lane_states_batch = None
-        for i in range(batch_size):
-            input_list = []
-            map_input_list = []
-            map_start_polyline_idx = mapping[i]['map_start_polyline_idx']
-            for j, polyline_span in enumerate(polyline_spans[i]):
-                tensor = torch.tensor(matrix[i][polyline_span], device=device)
-                input_list.append(tensor)
-                if j >= map_start_polyline_idx:
-                    map_input_list.append(tensor)
-
-            input_list_list.append(input_list)
-            map_input_list_list.append(map_input_list)
-        """
-        
         prot_atom_input_list_list = []
         drna_atom_input_list_list = []
 
@@ -291,7 +272,7 @@ class GraphNet(nn.Module):
         aa_indices = utils.get_from_mapping(mapping, 'aa_indices')
         atom_attributes = utils.get_from_mapping(mapping, 'atom_attributes') # List[List[np.ndarray=(n_atoms,)]]
         atom_indices = utils.get_from_mapping(mapping, 'atom_indices')
-        nc_attributes = utils.get_from_mapping(mapping, 'rdna_attributes') # List[np.ndarray=(n_nc, 4)]
+        nc_attributes = utils.get_from_mapping(mapping, 'nucleotide_attributes') # List[np.ndarray=(n_nc, 4)]
 
         batch_size = len(aa_attributes)
 
@@ -345,33 +326,4 @@ class GraphNet(nn.Module):
 
         loss = self.loss(outputs, labels)
 
-        #################################
-        """
-        matrix = utils.get_from_mapping(mapping, 'matrix')
-        # vectors of i_th element is matrix[polyline_spans[i]]
-        polyline_spans = utils.get_from_mapping(mapping, 'polyline_spans')
-
-        batch_size = len(matrix)
-        # for i in range(batch_size):
-        # polyline_spans[i] = [slice(polyline_span[0], polyline_span[1]) for polyline_span in polyline_spans[i]]
-
-        if args.argoverse:
-            utils.batch_init(mapping)
-        
-        # 输出都是list[tensor]: subgraph全部特征[num_polylines,128], subgraph地图特征[n_lane_polylines,128]
-        element_states_batch, lane_states_batch = self.forward_encode_sub_graph0(mapping, matrix, polyline_spans, device, batch_size)
-        
-        # 因为各polyline数量不同,需要padding: inputs:subgraph全部特征,shape=[batch,max_polylines,128], inputs_lengths:list[polyline实际数量]
-        inputs, inputs_lengths = utils.merge_tensors(element_states_batch, device=device)
-        max_poly_num = max(inputs_lengths)
-        attention_mask = torch.zeros([batch_size, max_poly_num, max_poly_num], device=device)
-        for i, length in enumerate(inputs_lengths):
-            attention_mask[i][:length][:length].fill_(1) # 因为用了padding，所以需要把不合法的polyline标记成0
-        # hidden_states,shape=[batch,max_polylines,128]
-        hidden_states = self.global_graph(inputs, attention_mask, mapping)
-
-        utils.logging('time3', round(time.time() - starttime, 2), 'secs')
-
-        return self.decoder(mapping, batch_size, lane_states_batch, inputs, inputs_lengths, hidden_states, device)
-        """
         return loss, outputs, None

@@ -17,7 +17,8 @@ import pandas as pd
 
 import utils
 from preprocessing.protein_chemistry import list_aa, \
-  aa_to_index, dictionary_covalent_bonds, list_atoms, atom_type_mass
+  aa_to_index, dictionary_covalent_bonds, list_atoms, atom_type_mass, \
+  nucleotide_to_index
 
 def remove_nan(matrix,padding_value=0.):
     aa_has_nan = np.isnan(matrix).reshape([len(matrix),-1]).max(-1)
@@ -34,7 +35,7 @@ def binarize_categorical(matrix, n_classes, out=None):
     out[np.arange(L)[subset],matrix[subset]] = 1
     return out
 
-def process_chain_without_coordinates(chain):
+def process_sequence_without_coordinates(chain):
   chain_by_int = [aa_to_index[it] # list_aa.index(it) 
     if it in list_aa else aa_to_index[it.upper()] # handle lower case of aa
     for it in chain 
@@ -43,37 +44,37 @@ def process_chain_without_coordinates(chain):
 
 # input:
 #   input_complex: one row of data
+#   args:
 # output:
 #   a dict containing data of one prot complex
 def pri_get_instance(input_complex, args):
   mapping = {}
 
-  prot_chain = input_complex["protein_sequence"] # string
-  rdna_seq = input_complex["nucleotide_sequence"] # string
-  label_dG = input_complex['dG']
-  # seq_by_int = [aa_to_index[it] # list_aa.index(it) 
-  #   if it in list_aa else it.upper() # handle lower case of aa
-  #   for it in prot_seq 
-  #   if it in list_aa or it.upper() in list_aa] # check if aa not in list_aa
-  chain_by_int = process_chain_without_coordinates(prot_chain)
-  num_aa = len(chain_by_int)
+  input_protein = input_complex["protein_sequence"] # string
+  input_nucleotide = input_complex["nucleotide_sequence"] # string
+  label_dG   = input_complex['dG']
 
-  aa_attributes = binarize_categorical(chain_by_int, 20) # one-hot np.arr[seq, 20]
+
+  protein_sequences = process_sequence_without_coordinates(input_protein)
+  num_aa = len(protein_sequences)
+
+  # one-hot np.array=(seq_num, 20)
+  aa_attributes = binarize_categorical(protein_sequences, 20)
   aa_attributes = aa_attributes.astype(np.float32)
   aa_indices = np.array([i for i in range(num_aa)])
 
-  # all_seq_by_int.append(seq_by_int)
-  # all_seq_by_str.append([it_aa for it_aa in prot_seq])
   atom_attributes = []
   atom_mass_attributes = []
   atom_indices = []
-  # atom_indices = []
-  for it in chain_by_int: # per residue
-    aa = list_aa[it]
+
+  for i, it in enumerate(protein_sequences): # per aa
+    aa = list_aa[it] # get aa string
     num_atoms = len(list(dictionary_covalent_bonds[aa].keys()))
     # [num_atoms,]
-    atom_type_per_aa = np.array([list_atoms.index(atom) for atom in dictionary_covalent_bonds[aa].keys()])
-    atom_mass_per_aa = np.array([atom_type_mass[list_atoms.index(atom)] for atom in dictionary_covalent_bonds[aa].keys()])
+    atom_type_per_aa = np.array([list_atoms.index(atom) 
+                                 for atom in dictionary_covalent_bonds[aa].keys()])
+    atom_mass_per_aa = np.array([atom_type_mass[list_atoms.index(atom)] 
+                                 for atom in dictionary_covalent_bonds[aa].keys()])
     
     atom_type_per_aa = atom_type_per_aa.reshape(-1,1) # [num_atoms, 1]
     atom_mass_per_aa = atom_mass_per_aa.reshape(-1,1) # [num_atoms, 1]
@@ -83,7 +84,9 @@ def pri_get_instance(input_complex, args):
     
     atom_attributes.append(atom_type_per_aa)
     atom_mass_attributes.append(atom_mass_per_aa)
-    atom_indices.append(np.ones((num_atoms,), dtype=np.int32) * it)
+
+    # indicates each atom belong to the index of aa
+    atom_indices.append(np.ones((num_atoms,), dtype=np.int32) * i)
 
   # atom_attributes = np.concatenate(atom_attributes, axis=0)
   # atom_mass_attributes = np.concatenate(atom_mass_attributes, axis=0)
@@ -96,35 +99,32 @@ def pri_get_instance(input_complex, args):
   # atom_mass_attributes = remove_nan(atom_mass_attributes, padding_value=0.)
   atom_indices = remove_nan(atom_indices, padding_value=0.)
 
-  rdna_map = {'A':0, 'T':1, 'C':2, 'G':3, 'U':3}
-  rdna_seqs = None
-  if '|' in rdna_seq:
-    rdna_seqs = rdna_seq.split('|')
+  # process nucleotide data
+  # nucleotide_to_index = {'A':0, 'C':1, 'G':2, 'T':3, 'U':3}
+  nucleotide_sequences = None
+  if '|' in input_nucleotide:
+    nucleotide_sequences = input_nucleotide.split('|')
   else:
-    rdna_seqs = [rdna_seq]
+    nucleotide_sequences = [input_nucleotide]
   
-  rdna_attributes = list()
-  for seq in rdna_seqs:
-    seq_int = [rdna_map[x] for x in seq]
-    seq_int = np.array(seq_int)
-    seq_mat = binarize_categorical(seq_int, 4).astype(np.float32)
-    rdna_attributes.append(seq_mat)
-  rdna_attributes = np.concatenate(rdna_attributes)
+  nucleotide_attributes = list()
+  for seq in nucleotide_sequences:
+    seq_int = np.array( [nucleotide_to_index[it] for it in seq] )
+    seq_matrix = binarize_categorical(seq_int, 4).astype(np.float32)
+    # other_feature shape=(seq_num, 1)
+    # seq_matrix = np.concatenate([seq_matrix, other_feature], axis=1)
+    nucleotide_attributes.append(seq_matrix)
+  # TODO: how to use double chains? 
+  #       combine to single chain or create 2 channel?
+  nucleotide_attributes = np.concatenate(nucleotide_attributes) # (seq_num, 4)
 
-  # mapping.update(dict(
-  #   matrix=matrix, # feat [n_nodes(traj + map), 128]
-  #   labels=np.array(labels).reshape([30, 2]), # gt traj
-  #   polyline_spans=[slice(each[0], each[1]) for each in polyline_spans], # list of slice(slice记录一个polyline的再matrix中的起止位置)
-  #   labels_is_valid=np.ones(args.future_frame_num, dtype=np.int64), # gt validance [30, 2]
-  #   eval_time=30,
-  # ))
   mapping.update(dict(
     aa_attributes = aa_attributes, # [num_aa, 20]
     aa_indices = aa_indices,
     atom_attributes = atom_attributes, # list[num_atoms,] type=int
     # atom_mass_attributes = atom_mass_attributes,
     atom_indices = atom_indices,
-    rdna_attributes = rdna_attributes,
+    nucleotide_attributes = nucleotide_attributes,
     label = label_dG,
   ))
   return mapping

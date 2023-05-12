@@ -2,12 +2,13 @@ import numpy as np
 from numba import types
 from numba.typed import List,Dict
 
+### nucleotide
+
+nucleotide_to_index = {'A':0, 'C':1, 'G':2, 'T':3, 'U':3}
 
 
 
-
-
-
+### protein
 
 list_atoms_types = ['C', 'O', 'N', 'S']  # H
 VanDerWaalsRadii = np.array([1.70, 1.52, 1.55, 1.80])  # 1.20
