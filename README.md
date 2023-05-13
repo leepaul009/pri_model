@@ -1,5 +1,13 @@
 # pri_model
 
+
+## setup conda environment
+find deps.yml file inside repo, and create conda environment.
+```
+### import conda env from yml file
+conda env create -f deps.yml
+```
+
 ## dataset
 dataset is stored in the directory:
 ```
