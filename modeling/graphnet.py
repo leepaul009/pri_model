@@ -291,7 +291,7 @@ class GraphNet(nn.Module):
         aa_indices = utils.get_from_mapping(mapping, 'aa_indices')
         atom_attributes = utils.get_from_mapping(mapping, 'atom_attributes') # List[List[np.ndarray=(n_atoms,)]]
         atom_indices = utils.get_from_mapping(mapping, 'atom_indices')
-        nc_attributes = utils.get_from_mapping(mapping, 'nucleotide_attributes') # List[np.ndarray=(n_nc, 4)]
+        na_attributes = utils.get_from_mapping(mapping, 'nucleotide_attributes') # List[np.ndarray=(n_nc, 4)]
 
         batch_size = len(aa_attributes)
 

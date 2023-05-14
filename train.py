@@ -18,7 +18,7 @@ from torch.nn.parallel import DistributedDataParallel
 
 from comm import get_world_size, get_rank, is_main_process, synchronize, all_gather, reduce_dict
 import utils
-from dataset_pri import PriDataset
+from dataset.dataset_pri import PriDataset
 
 from modeling.graphnet import GraphNet
 
