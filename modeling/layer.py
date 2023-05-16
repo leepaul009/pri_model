@@ -68,33 +68,35 @@ class ResidualBlock2D(nn.Module):
     return out
     
 class KMersNet(nn.Module):
-  def __init__(self):
+  def __init__(self, base_channel, out_channels):
     super().__init__()
 
-    base_channel = 8
-    out_channels = 64
+    if base_channel is None:
+      base_channel = 8
+    if out_channels is None:
+      out_channels = 32
     # TODO: should we use padding here
     self.conv = Conv2d(1, base_channel, 
                        kernel_size=(3, 5),
                        bn=True, same_padding=True)
     
     self.res2d = ResidualBlock2D(base_channel, kernel_size=(3, 5), padding=(1, 2)) 
-    self.fc = nn.Linear(base_channel*4, out_channels)
-    self.bn = nn.BatchNorm2d(out_channels)
+    self.fc = nn.Linear(base_channel*4*4, out_channels)
+    # self.bn = nn.BatchNorm1d(out_channels)
     self.relu = nn.ReLU(inplace=True)
 
   def forward(self, input):
-    x = self.conv(input) # (N,C,Seq,4) => (N,C,Seq,4)
+    x = self.conv(input) # (N,C=1,Seq,4) => (N,C,Seq,4)
     x = F.dropout(x, 0.1, training=self.training)
 
-    x = self.res2d(x) # (N,C,Seq,4) => (N,C,Seq,4)
+    x = self.res2d(x) # (N,C,Seq,4) => (N,C*4,Seq,4)
     x = F.dropout(x, 0.5, training=self.training)
 
-    x = x.permute(0,2,1,3).contiguous() # (N,C,Seq,4) => (N,Seq,C,4)
-    x = x.view(x.shape[0], x.shape[1], x.shape[2]*x.shape[3]) # (N,Seq,C*4)
+    x = x.permute(0,2,1,3).contiguous() # (N,C*4,Seq,4) => (N,Seq,C*4,4)
+    x = x.view(x.shape[0], x.shape[1], x.shape[2]*x.shape[3]) # (N,Seq,C*4*4)
     
     x = self.fc(x) # (N,Seq,C')
-    x = self.bn(x)
+    # x = self.bn(x)
     x = self.relu(x)
     return x
 

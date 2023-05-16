@@ -52,7 +52,7 @@ def add_argument(parser):
                         help="Total batch size for training.")
 
     parser.add_argument("--eval_batch_size",
-                        default=64,
+                        default=32,
                         type=int,
                         help="Total batch size for eval.")
     parser.add_argument("--model_recover_path",
@@ -65,7 +65,7 @@ def add_argument(parser):
                         type=float,
                         help="The weight decay rate for Adam.")
     parser.add_argument("--num_train_epochs",
-                        default=16.0,
+                        default=100.0,
                         type=float,
                         help="Total number of training epochs to perform.")
     parser.add_argument('--seed',

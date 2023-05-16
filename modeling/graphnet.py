@@ -9,6 +9,8 @@ from torch import nn, Tensor
 from modeling.lib import MLP, GlobalGraph, LayerNorm, CrossAttention, GlobalGraphRes, TimeDistributed
 import utils
 
+from modeling.layer import KMersNet
+
 from preprocessing.protein_chemistry import list_atoms
 
 class SubGraph(nn.Module):
@@ -132,6 +134,9 @@ class GraphNet(nn.Module):
         self.laneGCN_A2L = CrossAttention(hidden_size // 2)
         self.laneGCN_L2L = GlobalGraphRes(hidden_size // 2)
         self.laneGCN_L2A = CrossAttention(hidden_size // 2)
+        self.use_A2A = True
+        if self.use_A2A:
+            self.laneGCN_A2A = GlobalGraphRes(hidden_size // 2)
 
         # TODO: adjust hidden size to 32 (used in ScanNet)
         # TODO: make 20 as param
@@ -143,16 +148,20 @@ class GraphNet(nn.Module):
         
         self.aa_embeding_layer = nn.Linear(in_features=20, out_features=hidden_size // 2, bias=False)
         self.aa_embeding_layer = TimeDistributed(self.aa_embeding_layer)
-
-        self.na_embeding_layer = nn.Linear(in_features=4, out_features=hidden_size // 2, bias=False)
-        self.na_embeding_layer = TimeDistributed(self.na_embeding_layer)
-
-
-        self.use_conv = True
+        
+        self.use_conv = False
         # w=seq,h=4 ==> output: w'=seq-2(seq-3+1), h'=1(4-4+1)
         # h-kh+1:, w-kw+1:
-        self.na_conv2d = nn.Conv2d(in_channels=1, out_channels=hidden_size // 2, kernel_size=(3,4))
+        if self.use_conv:
+            self.na_conv2d = nn.Conv2d(in_channels=1, out_channels=hidden_size // 2, kernel_size=(3,4))
         
+        self.use_kmers = True
+        if self.use_kmers:
+            self.kmers_net = KMersNet(base_channel=8, out_channels=hidden_size // 2)
+
+        if not self.use_kmers and not self.use_conv:
+            self.na_embeding_layer = nn.Linear(in_features=4, out_features=hidden_size // 2, bias=False)
+            self.na_embeding_layer = TimeDistributed(self.na_embeding_layer)
 
         # TODO: if we 
         self.reg_pred = nn.Linear(in_features=hidden_size, out_features=1, bias=False)
@@ -213,9 +222,15 @@ class GraphNet(nn.Module):
                 rdna_feats = na_embedding[i] # (n_nc, h/2)
             rdna_feats = rdna_feats + self.laneGCN_A2L(
                 rdna_feats.unsqueeze(0), prot_feats.unsqueeze(0)).squeeze(0)
-            rdna_feats = rdna_feats + self.laneGCN_L2L(rdna_feats.unsqueeze(0)).squeeze(0)
+            rdna_feats = rdna_feats + self.laneGCN_L2L(
+                rdna_feats.unsqueeze(0)).squeeze(0)
             prot_feats = prot_feats + self.laneGCN_L2A(
                 prot_feats.unsqueeze(0), rdna_feats.unsqueeze(0)).squeeze(0)
+            
+            if self.use_A2A:
+                prot_feats = prot_feats + self.laneGCN_A2A(
+                    prot_feats.unsqueeze(0)).squeeze(0)
+
             prot_states_batch[i] = torch.cat([prot_feats, rdna_feats]) # [aa+nc, h/2]
             # prot_states_batch[i] = prot_feats # [aa, h/2]
 
@@ -264,7 +279,10 @@ class GraphNet(nn.Module):
         # merge to Tensor=(bs, max(n_na), 4)
         na_embedding, lengths = utils.merge_tensors(input_list, device=device)
 
-        if self.use_conv:
+        if self.use_kmers:
+            # (bs, 1, max(n_na), 4)->(bs, max(n_na), h/2)
+            na_embedding = self.kmers_net(na_embedding.unsqueeze(1))
+        elif self.use_conv:
             # (bs, 1, max(n_na), 4)->(bs, h/2, max(n_na)-2, 1)
             temp = self.na_conv2d(na_embedding.unsqueeze(1))
             # (bs, h/2, max(n_na)-2, 1) -> (bs, max(n_na)-2, h/2)

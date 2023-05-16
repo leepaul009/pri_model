@@ -34,17 +34,17 @@ def split_dataset(data, targets, valid_frac=0.2):
   return train, test
 
 
-def split_dataframe(data : pd.DataFrame, group_targets, valid_frac=0.2):
-  length = group_targets.shape[0]
+def split_dataframe(data_frame : pd.DataFrame, valid_frac=0.2):
+  length = len(data_frame)
   ind = np.arange(length)
   shuf_ind = np.random.permutation(length)
   
   n_train = int(length*0.5)
   n_val = int(length*0.25)
   
-  data_train = data.loc[ind[shuf_ind[:n_train]]]
-  data_val   = data.loc[ind[shuf_ind[n_train:n_train+n_val]]]
-  data_test  = data.loc[ind[shuf_ind[n_train+n_val:]]]
+  data_train = data_frame.loc[ind[shuf_ind[:n_train]]]
+  data_val   = data_frame.loc[ind[shuf_ind[n_train:n_train+n_val]]]
+  data_test  = data_frame.loc[ind[shuf_ind[n_train+n_val:]]]
 
   return data_train, data_val, data_test
 
@@ -93,10 +93,10 @@ def GenerateData(file):
   prot_vals = np.array(prot_vals) # (num_unique_seq, )
   size_by_keys = np.array([map_protein2size[k] for k in prot_keys]) # (num_unique_seq, )
 
-  long_indices = np.where(prot_vals > MAX_PROTEIN_LENGTH)[0]
-  long_prot_keys = prot_keys[long_indices]
+  indices = np.where(prot_vals > MAX_PROTEIN_LENGTH)[0]
+  long_prot_keys = prot_keys[indices]
   print("there are {} items of data, whose protein length > {}".format(
-    np.sum(size_by_keys[long_indices]), MAX_PROTEIN_LENGTH))
+    np.sum(size_by_keys[indices]), MAX_PROTEIN_LENGTH))
 
 
   # DNA/RNA whose length is larger than MAX_PROTEIN_LENGTH will be used as val set and test set
@@ -106,46 +106,51 @@ def GenerateData(file):
   nc_vals = np.array(nc_vals) # (num_unique_seq, )
   size_by_keys_nc = np.array([map_nucleotide2size[k] for k in nc_keys]) # (num_unique_seq, )
 
-  nc_long_indices = np.where(nc_vals > MAX_NUCLEOTIDE_LENGTH)[0]
-  long_nc_keys = nc_keys[nc_long_indices]
+  indices = np.where(nc_vals > MAX_NUCLEOTIDE_LENGTH)[0]
+  long_nc_keys = nc_keys[indices]
   print("there are {} items of data, whose DNA/RNA length > {}".format(
-    np.sum(size_by_keys_nc[nc_long_indices]), MAX_NUCLEOTIDE_LENGTH))
+    np.sum(size_by_keys_nc[indices]), MAX_NUCLEOTIDE_LENGTH))
 
 
   orig_labels = np.array(df.dG)
-  indices = []
 
+  indices = []
+  indices_long = []
   for i in range(len(df)):
-    item = df.loc[i]
     aa_seq = df.loc[i]['protein_sequence']
     nc_seq = df.loc[i]['nucleotide_sequence']
     if aa_seq not in long_prot_keys and nc_seq not in long_nc_keys:
       indices.append(i)
+    else:
+      indices_long.append(i)
   indices = np.array(indices)
+  indices_long = np.array(indices_long)
 
-  new_df = df.loc[indices]
+  df_test_set = df.loc[indices_long] # return a new pd.DataFrame
+
+  new_df = df.loc[indices] # return a new pd.DataFrame
   new_df.reset_index(inplace = True, drop = True)
   labels = orig_labels[indices]
 
-  gaps = np.arange(0, -28, -2).astype(np.float32)
-  groups = []
-
-  for i in range(gaps.shape[0]-1):
-    temp = np.logical_and(labels > gaps[i], labels <= gaps[i-1])
-    ind = np.where(temp)[0]
-    if ind.shape[0] > 0:
-      # print(ind)
-      groups.append(ind)
-
-    # print("dG < {} has size = {}".format(gaps[i], len(indices)))
+  
+  intervals = np.arange(0, -30, -2).astype(np.float32)
+  inds_groups = []
+  for i in range(intervals.shape[0]-1):
+    temp = np.logical_and(labels > intervals[i], labels <= intervals[i-1])
+    inds = np.where(temp)[0]
+    if inds.shape[0] > 0:
+      inds_groups.append(inds)
+    # print("dG < {} has size = {}".format(intervals[i], len(indices)))
 
   data_trains = []
   data_vals = []
   data_tests = []
-  for ind in groups:
-    temp_df = new_df.loc[ind]
+  for inds in inds_groups:
+    temp_df = new_df.loc[inds]
     temp_df.reset_index(inplace = True, drop = True)
-    data_train, data_val, data_test = split_dataframe(temp_df, labels[ind])
+    data_train, data_val, data_test = split_dataframe(temp_df)
+    print("this group have {} train_data, {} val_data, {} test_data".format(
+      len(data_train), len(data_val), len(data_test)))
     data_trains.append(data_train)
     data_vals.append(data_val)
     data_tests.append(data_test)
@@ -153,10 +158,17 @@ def GenerateData(file):
   data_train = pd.concat(data_trains)
   data_val = pd.concat(data_vals)
   data_test = pd.concat(data_tests)
-  data_train.to_csv('output.csv', index=False, sep='\t')
+  data_test = pd.concat([data_test, df_test_set])
+
+  print("finally we have {} train_data, {} val_data, {} test_data".format(
+    len(data_train), len(data_val), len(data_test)))
+
+  data_train.to_csv('data/train/train.csv', index=False, sep='\t')
+  data_val.to_csv('data/val/val.csv', index=False, sep='\t')
+  data_test.to_csv('data/test/test.csv', index=False, sep='\t')
 
 if __name__ == '__main__':
-  data_file = 'data/train/seq_dg_identity_230404.csv'
+  data_file = 'data/seq_dg_identity_230404.csv'
 
 
   GenerateData(data_file)

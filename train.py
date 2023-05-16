@@ -3,6 +3,7 @@ import numpy as np
 import pandas as pd
 import argparse
 import tqdm
+from tqdm import tqdm
 
 from preprocessing import PDBio
 from preprocessing import pipelines
@@ -121,17 +122,7 @@ def save_ckpt(model, opt, save_dir, epoch, iter):
     output_model_file)
 
 
-def val(model, device, args):
-
-  dataset = PriDataset(args, args.eval_batch_size)
-  # sampler = DistributedSampler(dataset, num_replicas=get_world_size(), rank=get_rank())
-  sampler = SequentialSampler(dataset)
-  dataloader = torch.utils.data.DataLoader(
-    dataset, sampler=sampler,
-    batch_size=args.eval_batch_size,
-    collate_fn=utils.batch_list_to_batch_tensors,
-    pin_memory=False)
-
+def val(model, dataloader, epoch, device, args):
 
   # model.to(device)
   model.eval()
@@ -140,22 +131,24 @@ def val(model, device, args):
   for step, batch in enumerate(iter_bar):
     with torch.no_grad():
       loss, pred, _ = model(batch, device)
-      # print eval info
+
+  print("validation result: epoch={} loss={}".format(epoch, loss.item()))
 
   # for training of next epoch
   model.train()
 
 
-def train_one_epoch(model, train_dataloader, optimizer, device, i_epoch, args):
+def train_one_epoch(model, train_dataloader, val_dataloader, 
+                    optimizer, device, i_epoch, args):
   
   save_iters = 1000
   save_dir = args.output_dir
 
   for step, batch in enumerate(train_dataloader):
-    print("step {}, batch.type={}".format( step, type(batch) ))
-    if (isinstance(batch, list)):
-      # batch has 64 inputs(list of dict)
-      print("batch size={}".format( len(batch) ))
+    # print("step {}, batch.type={}".format( step, type(batch) ))
+    # if (isinstance(batch, list)):
+    #   # batch has 64 inputs(list of dict)
+    #   print("batch size={}".format( len(batch) ))
 
     # break when meeting max iter
 
@@ -173,7 +166,7 @@ def train_one_epoch(model, train_dataloader, optimizer, device, i_epoch, args):
       save_ckpt(model, optimizer, save_dir, i_epoch, step)
 
   # do eval after an epoch training
-  # val(model, device，args)
+  val(model, val_dataloader, i_epoch, device, args)
 
 
 def main():
@@ -190,13 +183,24 @@ def main():
       torch.distributed.init_process_group(backend="nccl", init_method="env://",)
 
 
-  train_dataset = PriDataset(args, args.train_batch_size)
+  train_dataset = PriDataset(args, args.data_dir, args.train_batch_size)
   train_sampler = DistributedSampler(train_dataset, num_replicas=get_world_size(), rank=get_rank())
   train_dataloader = torch.utils.data.DataLoader(
     train_dataset, sampler=train_sampler,
     batch_size=args.train_batch_size // get_world_size(),
     collate_fn=utils.batch_list_to_batch_tensors)
   
+
+  val_dataset = PriDataset(args, args.data_dir_for_val, args.eval_batch_size)
+  # sampler = DistributedSampler(dataset, num_replicas=get_world_size(), rank=get_rank())
+  val_sampler = SequentialSampler(val_dataset)
+  val_dataloader = torch.utils.data.DataLoader(
+    val_dataset, sampler=val_sampler,
+    batch_size=args.eval_batch_size,
+    collate_fn=utils.batch_list_to_batch_tensors,
+    pin_memory=False)
+
+
   config = dict()
   model = GraphNet(config, args)
   model = model.cuda()
@@ -222,7 +226,7 @@ def main():
     # TODO: more function
     train_sampler.set_epoch(i_epoch)
     
-    train_one_epoch(model, train_dataloader, optimizer, device, i_epoch, args)
+    train_one_epoch(model, train_dataloader, val_dataloader, optimizer, device, i_epoch, args)
 
 
 if __name__ == '__main__':

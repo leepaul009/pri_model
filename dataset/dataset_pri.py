@@ -146,8 +146,7 @@ def pri_get_instance(input_complex, args):
 
 
 class PriDataset(torch.utils.data.Dataset):
-  def __init__(self, args, batch_size, to_screen=True):
-    data_dir = args.data_dir
+  def __init__(self, args, data_dir, batch_size, to_screen=True):
     if not isinstance(data_dir, list):
       data_dir = [data_dir]
     self.ex_list = []
@@ -162,7 +161,7 @@ class PriDataset(torch.utils.data.Dataset):
         # 
         files.extend([os.path.join(each_dir, file) for file in cur_files 
                       if file.endswith("csv") and not file.startswith('.')])
-      print(files[:3])
+      print("Create dataset to following files: {}".format(files))
 
 
       data_frame = pd.read_csv(files[0], sep='\t')
@@ -291,7 +290,7 @@ if __name__ == '__main__':
       torch.distributed.init_process_group(backend="nccl", init_method="env://",)
 
 
-  train_dataset = PriDataset(args, args.train_batch_size, to_screen=False)
+  train_dataset = PriDataset(args, args.data_dir, args.train_batch_size, to_screen=False)
   train_sampler = DistributedSampler(train_dataset, num_replicas=get_world_size(), rank=get_rank())
   # batch_list_to_batch_tensors collect one batch of inputs as List[Dict]
   train_dataloader = torch.utils.data.DataLoader(
