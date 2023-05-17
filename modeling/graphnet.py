@@ -88,14 +88,20 @@ class PredLoss(nn.Module):
     def __init__(self, config):
         super(PredLoss, self).__init__()
         self.config = config
-        self.loss = nn.MSELoss()
+        # self.loss = nn.MSELoss()
+        self.reg_loss = nn.SmoothL1Loss(reduction="sum")
 
     def forward(self, pred: Tensor, target: Tensor):
         """
         pred=(N, 1)
         target=(N, 1)
         """
-        output = self.loss(pred, target)
+        output = dict()
+        num_reg = pred.shape[0]
+        loss = self.reg_loss(pred, target)
+        output['num_reg'] = num_reg
+        output['reg_loss'] = loss
+        output['loss'] = loss / (num_reg + 1e-10)
         return output
 
 class GraphNet(nn.Module):
@@ -361,6 +367,38 @@ class GraphNet(nn.Module):
         labels = utils.get_from_mapping(mapping, 'label')
         labels = torch.tensor(labels, device=device, dtype=torch.float32).reshape(-1, 1) # [bs, 1]
 
-        loss = self.loss(outputs, labels)
+        loss_output = self.loss(outputs, labels)
 
-        return loss, outputs, None
+        return loss_output['loss'], outputs, loss_output
+
+
+class PostProcess(nn.Module):
+    def __init__(self):
+        super(PostProcess, self).__init__()
+
+    def forward(self, out):
+        post_out = dict()
+        post_out['num_reg'] = out['num_reg']
+        post_out['reg_loss'] = out['reg_loss']
+        return post_out
+
+    def append(self, metrics: Dict, post_out=None) -> Dict:
+        
+        if len(metrics.keys()) == 0:
+            for key in post_out:
+                if key != "loss":
+                    metrics[key] = 0.0
+
+        for key in post_out:
+            metrics[key] += post_out[key]
+            # print("post process: {} = {}".format(key, metrics[key]))
+
+        return metrics
+
+    def display(self, metrics, epoch, step=None, lr=None):
+        if lr is not None:
+            print("Epoch = {}, Step = {}".format(epoch, step))
+        else:
+            print("************************* Validation *************************")
+        loss = metrics["reg_loss"] / (metrics["num_reg"] + 1e-10)
+        print("loss = %2.4f" % (loss))

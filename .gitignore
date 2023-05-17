@@ -1,16 +1,12 @@
+# folders
 data
-*.ipynb
-.vscode
 output
+.vscode
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
 *$py.class
-.vscode
-data
-output
-*.ipynb
 
 # C extensions
 *.so

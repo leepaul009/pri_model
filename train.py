@@ -21,7 +21,7 @@ from comm import get_world_size, get_rank, is_main_process, synchronize, all_gat
 import utils
 from dataset.dataset_pri import PriDataset
 
-from modeling.graphnet import GraphNet
+from modeling.graphnet import GraphNet, PostProcess
 
 def main2():
 
@@ -122,28 +122,34 @@ def save_ckpt(model, opt, save_dir, epoch, iter):
     output_model_file)
 
 
-def val(model, dataloader, epoch, device, args):
+def val(model, dataloader, post_process, epoch, device, args):
 
   # model.to(device)
   model.eval()
 
   iter_bar = tqdm(dataloader, desc='Iter (loss=X.XXX)')
+  metrics = dict()
+  
   for step, batch in enumerate(iter_bar):
     with torch.no_grad():
-      loss, pred, _ = model(batch, device)
-
-  print("validation result: epoch={} loss={}".format(epoch, loss.item()))
+      loss, pred, loss_output = model(batch, device)
+      post_out = post_process(loss_output)
+      post_process.append(metrics, post_out)
+  
+  post_process.display(metrics, epoch)
+  # mean_loss = 0
+  # print("validation result: epoch={} loss={}".format(epoch, mean_loss))
 
   # for training of next epoch
   model.train()
 
 
 def train_one_epoch(model, train_dataloader, val_dataloader, 
-                    optimizer, device, i_epoch, args):
+                    optimizer, post_process, device, i_epoch, args):
   
   save_iters = 1000
   save_dir = args.output_dir
-
+  metrics = dict()
   for step, batch in enumerate(train_dataloader):
     # print("step {}, batch.type={}".format( step, type(batch) ))
     # if (isinstance(batch, list)):
@@ -152,22 +158,30 @@ def train_one_epoch(model, train_dataloader, val_dataloader,
 
     # break when meeting max iter
 
-    loss, DE, _ = model(batch, device)
+    loss, pred, loss_output = model(batch, device)
+    post_out = post_process(loss_output)
+    post_process.append(metrics, post_out)
     # del DE
     loss = loss.type(torch.float32)
     loss.backward()
+
+    
 
     optimizer.step()
     optimizer.zero_grad()
 
     if is_main_process and step % 10 == 0:
-      print("epoch={} step={} loss={}".format(i_epoch, step, loss.item()))
-    if is_main_process and step % save_iters == 0:
-      save_ckpt(model, optimizer, save_dir, i_epoch, step)
+      # print("epoch={} step={} loss={}".format(i_epoch, step, loss.item()))
+      post_process.display(metrics, i_epoch, step, args.learning_rate)
+    # if is_main_process and step % save_iters == 0:
+    #   save_ckpt(model, optimizer, save_dir, i_epoch, step)
 
   # do eval after an epoch training
-  val(model, val_dataloader, i_epoch, device, args)
+  if args.do_eval:
+    val(model, val_dataloader, post_process, i_epoch, device, args)
 
+  if is_main_process:
+    save_ckpt(model, optimizer, save_dir, i_epoch, step)
 
 def main():
   parser = argparse.ArgumentParser()
@@ -205,6 +219,7 @@ def main():
   model = GraphNet(config, args)
   model = model.cuda()
 
+  post_process = PostProcess()
 
   if distributed:
     model = DistributedDataParallel(
@@ -226,7 +241,7 @@ def main():
     # TODO: more function
     train_sampler.set_epoch(i_epoch)
     
-    train_one_epoch(model, train_dataloader, val_dataloader, optimizer, device, i_epoch, args)
+    train_one_epoch(model, train_dataloader, val_dataloader, optimizer, post_process, device, i_epoch, args)
 
 
 if __name__ == '__main__':

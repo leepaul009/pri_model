@@ -74,8 +74,10 @@ def pri_get_instance(input_complex, args):
 
   input_protein = input_complex["protein_sequence"] # string
   input_nucleotide = input_complex["nucleotide_sequence"] # string
-  label_dG   = input_complex['dG']
-
+  if 'zscore' in input_complex:
+    label_dG   = input_complex['zscore']
+  else:
+    label_dG   = input_complex['dG']
 
   protein_sequences = process_sequence_without_coordinates(input_protein)
   num_aa = len(protein_sequences)
@@ -166,7 +168,7 @@ class PriDataset(torch.utils.data.Dataset):
 
       data_frame = pd.read_csv(files[0], sep='\t')
       num_lines = len(data_frame)
-      num_lines = 64 * 10
+      # num_lines = 64 * 10
       pbar = tqdm(total=num_lines)
       # pbar = tqdm(total=len(files))
 
