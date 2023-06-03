@@ -13,6 +13,9 @@ from modeling.layer import KMersNet
 
 from preprocessing.protein_chemistry import list_atoms
 
+from scipy.stats import linregress
+from sklearn import metrics as sklearn_metrics
+
 class SubGraph(nn.Module):
     # config:
     #   depth:int, hidden_size:int, point_level-4-3:bool
@@ -382,18 +385,34 @@ class PostProcess(nn.Module):
         post_out['reg_loss'] = out['reg_loss']
         return post_out
 
-    def append(self, metrics: Dict, post_out=None) -> Dict:
+    def append(self, metrics: Dict, post_out=None, preds=None, input=None) -> Dict:
         
         if len(metrics.keys()) == 0:
             for key in post_out:
                 if key != "loss":
                     metrics[key] = 0.0
-
+        
+        # num_reg, re_loss
         for key in post_out:
             metrics[key] += post_out[key]
             # print("post process: {} = {}".format(key, metrics[key]))
 
+        if preds is not None and input is not None:
+            if "preds" not in metrics:
+                preds = preds.detach().cpu().numpy().reshape(-1) # (bs, 1) => (bs)
+                metrics["preds"] = preds # (bs)
+
+                labels = np.array(utils.get_from_mapping(input, 'label')) # (bs)
+                metrics["gts"] = labels
+            else:
+                preds = preds.detach().cpu().numpy().reshape(-1) # (bs, 1) => (bs)
+                metrics["preds"] = np.concatenate((metrics["preds"], preds))
+                labels = np.array(utils.get_from_mapping(input, 'label')) # (bs)
+                metrics["gts"] = np.concatenate((metrics["gts"], labels))
+
         return metrics
+    
+
 
     def display(self, metrics, epoch, step=None, lr=None):
         if lr is not None:
@@ -401,4 +420,18 @@ class PostProcess(nn.Module):
         else:
             print("************************* Validation *************************")
         loss = metrics["reg_loss"] / (metrics["num_reg"] + 1e-10)
-        print("loss = %2.4f" % (loss))
+        if lr is not None:
+            print("loss = %2.4f" % (loss))
+        else:
+            rvalue, pvalue, rrmse = 0, 0, 0
+            if "preds" in metrics and "gts" in metrics:
+                preds = metrics["preds"]
+                gts = metrics["gts"]
+                slope,intercept,rvalue,pvalue,stderr = linregress(gts, preds)
+                # rvalue 表示 皮尔森系数，越接近1越好，一般要到0.75以上，预测合格，pvalue表示检验的p值，需要小于0.05，严格一点需要小于0.01
+                rrmse = sklearn_metrics.mean_squared_error(gts, preds)
+                # rrmse 表示实验值和预测值之间的均方根误差，值越接近于0越好
+
+            print("validation loss = %2.4f, rvalue = %2.4f, pvalue = %2.8f, rrmse = %2.4f" % (loss, rvalue, pvalue, rrmse))
+            print("gts: {} ".format(gts))
+            print("preds: {} ".format(preds))

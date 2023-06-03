@@ -134,7 +134,7 @@ def val(model, dataloader, post_process, epoch, device, args):
     with torch.no_grad():
       loss, pred, loss_output = model(batch, device)
       post_out = post_process(loss_output)
-      post_process.append(metrics, post_out)
+      post_process.append(metrics, post_out, pred, batch)
   
   post_process.display(metrics, epoch)
   # mean_loss = 0
@@ -183,6 +183,16 @@ def train_one_epoch(model, train_dataloader, val_dataloader,
   if is_main_process:
     save_ckpt(model, optimizer, save_dir, i_epoch, step)
 
+def load_pretrain(net, pretrain_dict):
+    state_dict = net.state_dict()
+    for key in pretrain_dict.keys():
+        if key in state_dict and (pretrain_dict[key].size() == state_dict[key].size()):
+            value = pretrain_dict[key]
+            if not isinstance(value, torch.Tensor):
+                value = value.data
+            state_dict[key] = value
+    net.load_state_dict(state_dict)
+
 def main():
   parser = argparse.ArgumentParser()
   utils.add_argument(parser)
@@ -195,6 +205,33 @@ def main():
   distributed = False
   if distributed:
       torch.distributed.init_process_group(backend="nccl", init_method="env://",)
+
+
+  config = dict()
+  model = GraphNet(config, args)
+  model = model.cuda()
+
+  post_process = PostProcess()
+    
+  if distributed:
+    model = DistributedDataParallel(
+        model, 
+        find_unused_parameters=True,
+        device_ids=[args.local_rank], 
+        output_device=args.local_rank)
+
+  optimizer = torch.optim.Adam(model.parameters(), lr=args.learning_rate)
+
+  start_epoch = 0
+  if args.resume:
+    ckpt_path = args.resume_path
+    # if not os.path.isabs(ckpt_path):
+    #     ckpt_path = os.path.join(config["save_dir"], ckpt_path)
+    ckpt = torch.load(ckpt_path, map_location=lambda storage, loc: storage)
+    load_pretrain(model, ckpt["state_dict"])
+    start_epoch = ckpt["epoch"] + 1
+    optimizer.load_state_dict(ckpt["opt_state"])
+    print("load ckpt from {} and train from epoch {}".format(ckpt_path, start_epoch))
 
 
   train_dataset = PriDataset(args, args.data_dir, args.train_batch_size)
@@ -215,24 +252,9 @@ def main():
     pin_memory=False)
 
 
-  config = dict()
-  model = GraphNet(config, args)
-  model = model.cuda()
+  for i_epoch in range(int(start_epoch), int(start_epoch + args.num_train_epochs)):
 
-  post_process = PostProcess()
-
-  if distributed:
-    model = DistributedDataParallel(
-        model, 
-        find_unused_parameters=True,
-        device_ids=[args.local_rank], 
-        output_device=args.local_rank)
-
-  optimizer = torch.optim.Adam(model.parameters(), lr=args.learning_rate)
-
-  for i_epoch in range(int(args.num_train_epochs)):
-
-    learning_rate_decay(args, i_epoch, optimizer)
+    # learning_rate_decay(args, i_epoch, optimizer)
     # get_rank
     if is_main_process():
       print('Epoch: {}/{}'.format(i_epoch, int(args.num_train_epochs)), end='  ')

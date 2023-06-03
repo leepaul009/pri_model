@@ -46,6 +46,14 @@ def add_argument(parser):
     parser.add_argument("--output_dir", default="tmp/", type=str)
     parser.add_argument("--log_dir", default=None, type=str)
     parser.add_argument("--temp_file_dir", default=None, type=str)
+
+    parser.add_argument("--resume",
+                        action='store_true',
+                        help="Whether to run resume.")
+    parser.add_argument("--resume_path",
+                        default='',
+                        type=str)
+
     parser.add_argument("--train_batch_size",
                         default=32,
                         type=int,
@@ -225,6 +233,8 @@ class Args:
     old_version = None
     model_recover_path = None
     do_train = None
+    resume = None
+    resume_path = None
     max_distance = None
     no_sub_graph = None
     other_params: Dict = None

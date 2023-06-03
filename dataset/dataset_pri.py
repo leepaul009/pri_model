@@ -55,11 +55,7 @@ def process_sequence_without_coordinates(chain):
     if it in list_aa or it.upper() in list_aa] # check if aa not in list_aa
   return np.array(chain_by_int)
 
-# input:
-#   input_complex: one row of data
-#   args:
-# output:
-#   a dict containing data of one prot complex
+
 def pri_get_instance(input_complex, args):
   """
   Process one input.
@@ -166,11 +162,18 @@ class PriDataset(torch.utils.data.Dataset):
       print("Create dataset to following files: {}".format(files))
 
 
-      data_frame = pd.read_csv(files[0], sep='\t')
-      num_lines = len(data_frame)
-      # num_lines = 64 * 10
-      pbar = tqdm(total=num_lines)
+      # data_frame = pd.read_csv(files[0], sep='\t')
+      # num_lines = len(data_frame)
+      # pbar = tqdm(total=num_lines)
       # pbar = tqdm(total=len(files))
+
+      data_frame_list = []
+      num_lines = 0
+      for f in files:
+        df = pd.read_csv(f, sep='\t')
+        num_lines += len(df)
+        data_frame_list.append(df)
+      pbar = tqdm(total=num_lines)
 
       queue = multiprocessing.Queue(args.core_num) # inputs container
       queue_res = multiprocessing.Queue() # outputs container
@@ -199,22 +202,27 @@ class PriDataset(torch.utils.data.Dataset):
       for each in processes:
           each.start()
       # res = pool.map_async(calc_ex_list, [queue for i in range(args.core_num)])
-      for i in range(num_lines):
-        assert data_frame.loc[i] is not None
-        # insert one row into queue
-        queue.put(data_frame.loc[i])
-        pbar.update(1)
+      # for i in range(num_lines):
+      #   assert data_frame.loc[i] is not None
+      #   # insert one row into queue
+      #   queue.put(data_frame.loc[i])
+      #   pbar.update(1)
+      
+      for df in data_frame_list:
+        for i in range(len(df)):
+          assert df.loc[i] is not None
+          queue.put(df.loc[i])
+          pbar.update(1)
 
       # necessary because queue is out-of-order
       while not queue.empty():
           pass
       pbar.close()
       
+      # move output files from queue_res into self.ex_list
       self.ex_list = []
-
       pbar = tqdm(total=num_lines)
       for i in range(num_lines):
-        #
         t = queue_res.get()
         if t is not None:
             self.ex_list.append(t)
