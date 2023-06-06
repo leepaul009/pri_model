@@ -251,6 +251,7 @@ class GraphNet(nn.Module):
             # aa_indices,
             device, batch_size) -> Tuple[List[Tensor], List[int]]:
         """
+        compute embedding of amino acid
         inputs:
             aa_attributes: List[Tensor=(n_aa, 20)]
         outputs:
@@ -274,7 +275,7 @@ class GraphNet(nn.Module):
             # aa_indices,
             device, batch_size) -> Tuple[List[Tensor], List[int]]:
         """
-        embedding of Nucleic Acids
+        compute embedding of Nucleic Acids
         inputs:
             na_attributes: List[Tensor=(n_na, 4)]
         outputs:
@@ -313,18 +314,21 @@ class GraphNet(nn.Module):
         global starttime
         starttime = time.time()
 
-
+        # amino acid feature, tensor shape = (number_of_amino_acid, 20)
         aa_attributes = utils.get_from_mapping(mapping, 'aa_attributes') # List[np.ndarray=(n_aa, 20)]
         aa_indices = utils.get_from_mapping(mapping, 'aa_indices')
         atom_attributes = utils.get_from_mapping(mapping, 'atom_attributes') # List[List[np.ndarray=(n_atoms,)]]
         atom_indices = utils.get_from_mapping(mapping, 'atom_indices')
+        # DNA/RNA feature, tensor shape = (number_of_DNA/RNA, 4)
         na_attributes = utils.get_from_mapping(mapping, 'nucleotide_attributes') # List[np.ndarray=(n_nc, 4)]
 
         batch_size = len(aa_attributes)
 
+        # compute embedding feature for amino acid sequence
         # list[Tensor=(n_aa, h/2)]
         aa_embedding, _ = self.aa_attribute_embeding(aa_attributes, device, batch_size)
         
+        # compute embedding feature for DNA/RNA
         # list[Tensor=(n_nc, h/2)]
         na_embedding, _ = self.na_attribute_embeding(na_attributes, device, batch_size)
         
@@ -431,6 +435,8 @@ class PostProcess(nn.Module):
                 # rvalue 表示 皮尔森系数，越接近1越好，一般要到0.75以上，预测合格，pvalue表示检验的p值，需要小于0.05，严格一点需要小于0.01
                 rrmse = sklearn_metrics.mean_squared_error(gts, preds)
                 # rrmse 表示实验值和预测值之间的均方根误差，值越接近于0越好
+                np.savez("pred_output_{}".format(epoch), preds=preds, gts=gts)
+
 
             print("validation loss = %2.4f, rvalue = %2.4f, pvalue = %2.8f, rrmse = %2.4f" % (loss, rvalue, pvalue, rrmse))
             print("gts: {} ".format(gts))

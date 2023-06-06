@@ -55,5 +55,11 @@ python train.py --data_dir data/train --data_dir_for_val data/val --core_num 8 -
 #   resume_path: directory of resume model parameter
 ```
 
+### 3.2.1 Train from background, then we are not worry about terminal stoped
+```
+nohup python -u train.py --data_dir data/train --data_dir_for_val data/val --core_num 8 --output_dir output --train_batch_size 40 --num_train_epochs 100 --do_eval --resume --resume_path output/model.300.202.ckpt   >train.log 2>&1 &
+
+# will return pid, for example pid=2857798
+```
 
 
