@@ -122,6 +122,18 @@ def save_ckpt(model, opt, save_dir, epoch, iter):
     output_model_file)
 
 
+def test(model, dataloader, post_process, epoch, device, args):
+  model.eval()
+  iter_bar = tqdm(dataloader, desc='Iter (loss=X.XXX)')
+  metrics = dict()
+  for step, batch in enumerate(iter_bar):
+    with torch.no_grad():
+      loss, pred, loss_output = model(batch, device)
+      post_out = post_process(loss_output)
+      post_process.append(metrics, post_out, pred, batch)
+  post_process.display(metrics, epoch)
+
+
 def val(model, dataloader, post_process, epoch, device, args):
 
   # model.to(device)
@@ -164,8 +176,6 @@ def train_one_epoch(model, train_dataloader, val_dataloader,
     # del DE
     loss = loss.type(torch.float32)
     loss.backward()
-
-    
 
     optimizer.step()
     optimizer.zero_grad()
@@ -234,36 +244,51 @@ def main():
     print("load ckpt from {} and train from epoch {}".format(ckpt_path, start_epoch))
 
 
-  train_dataset = PriDataset(args, args.data_dir, args.train_batch_size)
-  train_sampler = DistributedSampler(train_dataset, num_replicas=get_world_size(), rank=get_rank())
-  train_dataloader = torch.utils.data.DataLoader(
-    train_dataset, sampler=train_sampler,
-    batch_size=args.train_batch_size // get_world_size(),
-    collate_fn=utils.batch_list_to_batch_tensors)
+
   
+  if args.do_test:
+    test_dataset = PriDataset(args, args.data_dir_for_test, args.test_batch_size)
+    # sampler = DistributedSampler(dataset, num_replicas=get_world_size(), rank=get_rank())
+    test_sampler = SequentialSampler(test_dataset)
+    test_dataloader = torch.utils.data.DataLoader(
+      test_dataset, sampler=test_sampler,
+      batch_size=args.test_batch_size,
+      collate_fn=utils.batch_list_to_batch_tensors,
+      pin_memory=False)
 
-  val_dataset = PriDataset(args, args.data_dir_for_val, args.eval_batch_size)
-  # sampler = DistributedSampler(dataset, num_replicas=get_world_size(), rank=get_rank())
-  val_sampler = SequentialSampler(val_dataset)
-  val_dataloader = torch.utils.data.DataLoader(
-    val_dataset, sampler=val_sampler,
-    batch_size=args.eval_batch_size,
-    collate_fn=utils.batch_list_to_batch_tensors,
-    pin_memory=False)
+    test(model, test_dataloader, post_process, start_epoch, device, args)
 
+  else:
 
-  for i_epoch in range(int(start_epoch), int(start_epoch + args.num_train_epochs)):
-
-    # learning_rate_decay(args, i_epoch, optimizer)
-    # get_rank
-    if is_main_process():
-      print('Epoch: {}/{}'.format(i_epoch, int(args.num_train_epochs)), end='  ')
-      print('Learning Rate = %5.8f' % optimizer.state_dict()['param_groups'][0]['lr'])
-
-    # TODO: more function
-    train_sampler.set_epoch(i_epoch)
+    train_dataset = PriDataset(args, args.data_dir, args.train_batch_size)
+    train_sampler = DistributedSampler(train_dataset, num_replicas=get_world_size(), rank=get_rank())
+    train_dataloader = torch.utils.data.DataLoader(
+      train_dataset, sampler=train_sampler,
+      batch_size=args.train_batch_size // get_world_size(),
+      collate_fn=utils.batch_list_to_batch_tensors)
     
-    train_one_epoch(model, train_dataloader, val_dataloader, optimizer, post_process, device, i_epoch, args)
+
+    val_dataset = PriDataset(args, args.data_dir_for_val, args.eval_batch_size)
+    # sampler = DistributedSampler(dataset, num_replicas=get_world_size(), rank=get_rank())
+    val_sampler = SequentialSampler(val_dataset)
+    val_dataloader = torch.utils.data.DataLoader(
+      val_dataset, sampler=val_sampler,
+      batch_size=args.eval_batch_size,
+      collate_fn=utils.batch_list_to_batch_tensors,
+      pin_memory=False)
+
+    for i_epoch in range(int(start_epoch), int(start_epoch + args.num_train_epochs)):
+
+      # learning_rate_decay(args, i_epoch, optimizer)
+      # get_rank
+      if is_main_process():
+        print('Epoch: {}/{}'.format(i_epoch, int(args.num_train_epochs)), end='  ')
+        print('Learning Rate = %5.8f' % optimizer.state_dict()['param_groups'][0]['lr'])
+
+      # TODO: more function
+      train_sampler.set_epoch(i_epoch)
+      
+      train_one_epoch(model, train_dataloader, val_dataloader, optimizer, post_process, device, i_epoch, args)
 
 
 if __name__ == '__main__':

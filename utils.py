@@ -36,12 +36,13 @@ def add_argument(parser):
     parser.add_argument("--do_test",
                         action='store_true')
     parser.add_argument("--data_dir",
-                        # default='train/data/',
                         default='data/train/',
                         type=str)
     parser.add_argument("--data_dir_for_val",
-                        # default='val/data/',
                         default='data/val/',
+                        type=str)
+    parser.add_argument("--data_dir_for_test",
+                        default='data/test/',
                         type=str)
     parser.add_argument("--output_dir", default="tmp/", type=str)
     parser.add_argument("--log_dir", default=None, type=str)
@@ -53,16 +54,18 @@ def add_argument(parser):
     parser.add_argument("--resume_path",
                         default='',
                         type=str)
-
     parser.add_argument("--train_batch_size",
                         default=32,
                         type=int,
                         help="Total batch size for training.")
-
     parser.add_argument("--eval_batch_size",
                         default=32,
                         type=int,
                         help="Total batch size for eval.")
+    parser.add_argument("--test_batch_size",
+                        default=32,
+                        type=int,
+                        help="Total batch size for test.")
     parser.add_argument("--model_recover_path",
                         default=None,
                         type=str)

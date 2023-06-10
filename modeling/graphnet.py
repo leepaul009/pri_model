@@ -151,12 +151,17 @@ class GraphNet(nn.Module):
         # TODO: make 20 as param
         # TODO: make 2 as param
         # TODO: make 'relu' as para
-        self.aa_embeding_layer = nn.RNN(
-            input_size=20, hidden_size=hidden_size // 2, num_layers=2, 
-            nonlinearity='relu', batch_first=True)
+        # self.aa_embeding_layer = nn.RNN(
+        #     input_size=20, hidden_size=hidden_size // 2, num_layers=2, 
+        #     nonlinearity='relu', batch_first=True)
         
-        self.aa_embeding_layer = nn.Linear(in_features=20, out_features=hidden_size // 2, bias=False)
+        self.aa_features = 20
+        self.aa_embeding_layer = nn.Linear(in_features=self.aa_features, out_features=hidden_size // 2, bias=False)
         self.aa_embeding_layer = TimeDistributed(self.aa_embeding_layer)
+
+        self.aa_hmm_features = 30
+        self.aa_hmm_embeding_layer = nn.Linear(in_features=self.aa_hmm_features, out_features=hidden_size // 2, bias=False)
+        self.aa_hmm_embeding_layer = TimeDistributed(self.aa_hmm_embeding_layer)
         
         self.use_conv = False
         # w=seq,h=4 ==> output: w'=seq-2(seq-3+1), h'=1(4-4+1)
@@ -186,9 +191,9 @@ class GraphNet(nn.Module):
 
     def forward_encode_sub_graph(
             self, 
-            mapping: List[Dict], 
+            mapping: List[Dict],  # not used
             atom_attributes, # List[List[np.ndarray]]
-            atom_indices,
+            atom_indices, # not used
             na_embedding,
             # matrix: List[np.ndarray], 
             # polyline_spans: List[List[slice]],
@@ -248,6 +253,7 @@ class GraphNet(nn.Module):
     def aa_attribute_embeding(
             self,
             aa_attributes : List[np.ndarray], 
+            aa_hmm_pwm : List[np.ndarray],
             # aa_indices,
             device, batch_size) -> Tuple[List[Tensor], List[int]]:
         """
@@ -264,9 +270,20 @@ class GraphNet(nn.Module):
             input_list.append(tensor)
         aa_embedding, lengths = utils.merge_tensors(input_list, device=device) # [bs, max_n_aa, 20]
         aa_embedding = self.aa_embeding_layer(aa_embedding) # [bs, max_n_aa, 20]->[bs, max_n_aa, h/2]
-        aa_embedding = F.relu(aa_embedding)
+        # aa_embedding = F.relu(aa_embedding)
 
-        return utils.de_merge_tensors(aa_embedding, lengths), lengths
+        hmm_pwm_list = []
+        for i in range(batch_size):
+            tensor = torch.tensor(aa_hmm_pwm[i], device=device)
+            hmm_pwm_list.append(tensor)
+        aa_hmm_pwm_embedding, _ = utils.merge_tensors(hmm_pwm_list, device=device) # [bs, max_n_aa, 30]
+        aa_hmm_pwm_embedding = self.aa_hmm_embeding_layer(aa_hmm_pwm_embedding) # [bs, max_n_aa, 30]->[bs, max_n_aa, h/2]
+        # aa_hmm_pwm_embedding = F.relu(aa_hmm_pwm_embedding)    
+
+        final_embedding = aa_embedding + aa_hmm_pwm_embedding
+        final_embedding = F.relu(final_embedding)    
+
+        return utils.de_merge_tensors(final_embedding, lengths), lengths
         # return aa_embedding, lengths
 
     def na_attribute_embeding(
@@ -316,7 +333,9 @@ class GraphNet(nn.Module):
 
         # amino acid feature, tensor shape = (number_of_amino_acid, 20)
         aa_attributes = utils.get_from_mapping(mapping, 'aa_attributes') # List[np.ndarray=(n_aa, 20)]
-        aa_indices = utils.get_from_mapping(mapping, 'aa_indices')
+        aa_hmm_pwm = utils.get_from_mapping(mapping, 'aa_hmm_pwm') # List[np.ndarray=(n_aa, 30)]
+
+        aa_indices = utils.get_from_mapping(mapping, 'aa_indices') # not used
         atom_attributes = utils.get_from_mapping(mapping, 'atom_attributes') # List[List[np.ndarray=(n_atoms,)]]
         atom_indices = utils.get_from_mapping(mapping, 'atom_indices')
         # DNA/RNA feature, tensor shape = (number_of_DNA/RNA, 4)
@@ -326,7 +345,7 @@ class GraphNet(nn.Module):
 
         # compute embedding feature for amino acid sequence
         # list[Tensor=(n_aa, h/2)]
-        aa_embedding, _ = self.aa_attribute_embeding(aa_attributes, device, batch_size)
+        aa_embedding, _ = self.aa_attribute_embeding(aa_attributes, aa_hmm_pwm, device, batch_size)
         
         # compute embedding feature for DNA/RNA
         # list[Tensor=(n_nc, h/2)]

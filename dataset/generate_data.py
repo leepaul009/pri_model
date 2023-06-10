@@ -1,13 +1,9 @@
 import numpy as np
 import pandas as pd
-
+import argparse
 
 MAX_PROTEIN_LENGTH = 1000
 MAX_NUCLEOTIDE_LENGTH = 150
-
-
-
-
 
 
 
@@ -168,10 +164,12 @@ def GenerateData(file):
   data_test.to_csv('data/test/test.csv', index=False, sep='\t')
 
 if __name__ == '__main__':
-  data_file = 'data/seq_dg_identity_230404.csv'
+  parser = argparse.ArgumentParser()
+  parser.add_argument("--data", default="data/_datasets/seq_dg_cluster_final_230607_v2.csv", type=str)
+  args = parser.parse_args()
+  # data_file = 'data/_datasets/seq_dg_identity_230404.csv'
 
-
-  GenerateData(data_file)
+  GenerateData(args.data)
 
 
 

@@ -34,7 +34,7 @@ Function pri_get_instance is the function to process one complex(protein-DNA/RNA
 ## 3. Train and inference
 ### 3.1 Train from beginning
 ```
-python train.py --data_dir data/train --data_dir_for_val data/val --core_num 8 --output_dir output --train_batch_size 40 --num_train_epochs 100 --do_eval
+python train.py --data_dir data/train --data_dir_for_val data/val --core_num 8 --output_dir output --train_batch_size 40 --num_train_epochs 300 --do_eval
 
 # parameter:
 #   data_dir: directory of training dataset
@@ -60,6 +60,15 @@ python train.py --data_dir data/train --data_dir_for_val data/val --core_num 8 -
 nohup python -u train.py --data_dir data/train --data_dir_for_val data/val --core_num 8 --output_dir output --train_batch_size 40 --num_train_epochs 100 --do_eval --resume --resume_path output/model.300.202.ckpt   >train.log 2>&1 &
 
 # will return pid, for example pid=2857798
+
+
+nohup python -u train.py --data_dir data/train --data_dir_for_val data/val --core_num 8 --output_dir output --train_batch_size 40 --num_train_epochs 300 --do_eval   >train_01.log 2>&1 &
+3860377
 ```
 
+### 3.3 Inference
+```
+python train.py --do_test --data_dir_for_test data/test --core_num 8 --output_dir output --test_batch_size 16 --resume --resume_path output/model.401.202.ckpt
 
+
+```
