@@ -50,8 +50,8 @@ def GenerateData(file):
   input_size = len(df)
 
   # same protein sequence corresponds to multiple inputs
-  map_protein2size = {}
-  map_protein2length = {}
+  map_protein2size = {} # certain protein has how many data
+  map_protein2length = {} # certain protein's length
 
   map_nucleotide2size = {}
   map_nucleotide2length = {}

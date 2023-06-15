@@ -87,7 +87,7 @@ def add_argument(parser):
                         action='store_true',
                         help="Whether not to use CUDA when available")
     parser.add_argument("--hidden_size",
-                        default=64,
+                        default=128,
                         type=int)
     parser.add_argument("--hidden_dropout_prob",
                         default=0.1,
@@ -210,13 +210,21 @@ def add_argument(parser):
                         type=int)
     parser.add_argument("--local_rank", type=int, default=0)
 
+    ## input features
+    parser.add_argument("--pwm_type",
+                        default='pssm',
+                        type=str)
+
 class Args:
     data_dir = None
+    data_dir_for_val = None
+    data_dir_for_test = None
     data_kind = None
     debug = None
     train_batch_size = None
     seed = None
     eval_batch_size = None
+    test_batch_size = None
     distributed_training = None
     cuda_visible_device_num = None
     log_dir = None
@@ -269,6 +277,8 @@ class Args:
     nms_threshold = None
     inter_agent_types = None
     local_rank = None
+    ## 
+    pwm_type = None
 
 args: Args = None
 

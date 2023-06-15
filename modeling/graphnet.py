@@ -16,6 +16,9 @@ from preprocessing.protein_chemistry import list_atoms
 from scipy.stats import linregress
 from sklearn import metrics as sklearn_metrics
 
+def is_pwm_type_valid(pwm_type):
+    return pwm_type in ['hmm', 'pssm', 'psfm']
+
 class SubGraph(nn.Module):
     # config:
     #   depth:int, hidden_size:int, point_level-4-3:bool
@@ -154,15 +157,33 @@ class GraphNet(nn.Module):
         # self.aa_embeding_layer = nn.RNN(
         #     input_size=20, hidden_size=hidden_size // 2, num_layers=2, 
         #     nonlinearity='relu', batch_first=True)
-        
-        self.aa_features = 20
-        self.aa_embeding_layer = nn.Linear(in_features=self.aa_features, out_features=hidden_size // 2, bias=False)
-        self.aa_embeding_layer = TimeDistributed(self.aa_embeding_layer)
+        self.pwm_type = args.pwm_type
 
-        self.aa_hmm_features = 30
-        self.aa_hmm_embeding_layer = nn.Linear(in_features=self.aa_hmm_features, out_features=hidden_size // 2, bias=False)
-        self.aa_hmm_embeding_layer = TimeDistributed(self.aa_hmm_embeding_layer)
+        self.aa_output_features = hidden_size // 2
+        if is_pwm_type_valid(self.pwm_type):
+            self.aa_output_features = hidden_size // 4
+
+        self.aa_input_features = 20
+        self.aa_embeding_layer = nn.Linear(in_features=self.aa_input_features, out_features=self.aa_output_features, bias=False)
+        self.aa_embeding_layer = TimeDistributed(self.aa_embeding_layer)
         
+  
+        if self.pwm_type == 'hmm':
+            self.aa_pwm_features = 30
+            self.aa_pwm_embeding_layer = nn.Linear(in_features=self.aa_pwm_features, out_features=hidden_size // 4, bias=False)
+            self.aa_pwm_embeding_layer = TimeDistributed(self.aa_pwm_embeding_layer)
+        elif self.pwm_type == 'pssm':
+            self.aa_pwm_features = 20
+            self.aa_pwm_embeding_layer = nn.Linear(in_features=self.aa_pwm_features, out_features=hidden_size // 4, bias=False)
+            self.aa_pwm_embeding_layer = TimeDistributed(self.aa_pwm_embeding_layer)
+        elif self.pwm_type == 'psfm':
+            self.aa_pwm_features = 20
+            self.aa_pwm_embeding_layer = nn.Linear(in_features=self.aa_pwm_features, out_features=hidden_size // 4, bias=False)
+            self.aa_pwm_embeding_layer = TimeDistributed(self.aa_pwm_embeding_layer)
+        else:
+            NotImplemented
+
+
         self.use_conv = False
         # w=seq,h=4 ==> output: w'=seq-2(seq-3+1), h'=1(4-4+1)
         # h-kh+1:, w-kw+1:
@@ -253,7 +274,7 @@ class GraphNet(nn.Module):
     def aa_attribute_embeding(
             self,
             aa_attributes : List[np.ndarray], 
-            aa_hmm_pwm : List[np.ndarray],
+            aa_pwm : List[np.ndarray],
             # aa_indices,
             device, batch_size) -> Tuple[List[Tensor], List[int]]:
         """
@@ -269,19 +290,20 @@ class GraphNet(nn.Module):
             tensor = torch.tensor(aa_attributes[i], device=device)
             input_list.append(tensor)
         aa_embedding, lengths = utils.merge_tensors(input_list, device=device) # [bs, max_n_aa, 20]
-        aa_embedding = self.aa_embeding_layer(aa_embedding) # [bs, max_n_aa, 20]->[bs, max_n_aa, h/2]
-        # aa_embedding = F.relu(aa_embedding)
+        aa_embedding = self.aa_embeding_layer(aa_embedding) # [bs, max_n_aa, 20]->[bs, max_n_aa, h/4]
+        aa_embedding = F.relu(aa_embedding)
 
-        hmm_pwm_list = []
-        for i in range(batch_size):
-            tensor = torch.tensor(aa_hmm_pwm[i], device=device)
-            hmm_pwm_list.append(tensor)
-        aa_hmm_pwm_embedding, _ = utils.merge_tensors(hmm_pwm_list, device=device) # [bs, max_n_aa, 30]
-        aa_hmm_pwm_embedding = self.aa_hmm_embeding_layer(aa_hmm_pwm_embedding) # [bs, max_n_aa, 30]->[bs, max_n_aa, h/2]
-        # aa_hmm_pwm_embedding = F.relu(aa_hmm_pwm_embedding)    
-
-        final_embedding = aa_embedding + aa_hmm_pwm_embedding
-        final_embedding = F.relu(final_embedding)    
+        if is_pwm_type_valid(self.pwm_type) and aa_pwm is not None:
+            pwm_list = []
+            for i in range(batch_size):
+                tensor = torch.tensor(aa_pwm[i], device=device)
+                pwm_list.append(tensor)
+            aa_pwm_embedding, _ = utils.merge_tensors(pwm_list, device=device) # [bs, max_n_aa, 30]
+            aa_pwm_embedding = self.aa_pwm_embeding_layer(aa_pwm_embedding) # [bs, max_n_aa, 30]->[bs, max_n_aa, h/4]
+            aa_pwm_embedding = F.relu(aa_pwm_embedding)    
+            final_embedding = torch.cat([aa_embedding, aa_pwm_embedding], dim=-1) # [bs, max_n_aa, h/2]
+        else:
+            final_embedding = aa_embedding
 
         return utils.de_merge_tensors(final_embedding, lengths), lengths
         # return aa_embedding, lengths
@@ -333,7 +355,16 @@ class GraphNet(nn.Module):
 
         # amino acid feature, tensor shape = (number_of_amino_acid, 20)
         aa_attributes = utils.get_from_mapping(mapping, 'aa_attributes') # List[np.ndarray=(n_aa, 20)]
-        aa_hmm_pwm = utils.get_from_mapping(mapping, 'aa_hmm_pwm') # List[np.ndarray=(n_aa, 30)]
+
+        aa_pwm = None
+        if self.pwm_type == 'hmm':
+            aa_pwm = utils.get_from_mapping(mapping, 'aa_hmm_pwm') # List[np.ndarray=(n_aa, 30)]
+        elif self.pwm_type == 'pssm':
+            aa_pwm = utils.get_from_mapping(mapping, 'aa_pssm_pwm') # List[np.ndarray=(n_aa, 30)]
+        elif self.pwm_type == 'psfm':
+            aa_pwm = utils.get_from_mapping(mapping, 'aa_psfm_pwm') # List[np.ndarray=(n_aa, 30)]
+        else:
+            NotImplemented
 
         aa_indices = utils.get_from_mapping(mapping, 'aa_indices') # not used
         atom_attributes = utils.get_from_mapping(mapping, 'atom_attributes') # List[List[np.ndarray=(n_atoms,)]]
@@ -345,7 +376,7 @@ class GraphNet(nn.Module):
 
         # compute embedding feature for amino acid sequence
         # list[Tensor=(n_aa, h/2)]
-        aa_embedding, _ = self.aa_attribute_embeding(aa_attributes, aa_hmm_pwm, device, batch_size)
+        aa_embedding, _ = self.aa_attribute_embeding(aa_attributes, aa_pwm, device, batch_size)
         
         # compute embedding feature for DNA/RNA
         # list[Tensor=(n_nc, h/2)]

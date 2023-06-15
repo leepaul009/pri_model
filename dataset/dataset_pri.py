@@ -119,9 +119,22 @@ def pri_get_instance(input_complex, args):
 
   data_file = os.path.join(pwm_dir, protein_index, "pssm_hmm.txt")
   pwm_df = pd.read_csv(data_file, sep='\t')
+  # hmm
   hmm_cols = pwm_df.columns[pwm_df.columns.str.startswith("hmm")]
   num_hmm_cols = len(hmm_cols)
   hmm_np_array = pwm_df.iloc[:, 1:1+num_hmm_cols].values # (num_aa, 30)
+  # pssm
+  pssm_cols = pwm_df.columns[pwm_df.columns.str.startswith("pssm")]
+  num_pssm_cols = len(pssm_cols)
+  ibeg = 1+num_hmm_cols
+  iend = 1+num_hmm_cols+num_pssm_cols
+  pssm_np_array = pwm_df.iloc[:, ibeg:iend].values
+  # psfm
+  psfm_cols = pwm_df.columns[pwm_df.columns.str.startswith("psfm")]
+  num_psfm_cols = len(psfm_cols)
+  ibeg = 1+num_hmm_cols+num_pssm_cols
+  iend = 1+num_hmm_cols+num_pssm_cols+num_psfm_cols
+  psfm_np_array = pwm_df.iloc[:, ibeg:iend].values
 
   # aa_attributes = np.concatenate([aa_attributes, hmm_np_array], axis=-1) # (num_aa, 20+30)
 
@@ -148,7 +161,9 @@ def pri_get_instance(input_complex, args):
 
   mapping.update(dict(
     aa_attributes = aa_attributes, # (num_aa, 20) ? + 30
-    aa_hmm_pwm = hmm_np_array,
+    aa_hmm_pwm = hmm_np_array, # (num_aa, 30)
+    aa_pssm_pwm = pssm_np_array, # (num_aa, 20)
+    aa_psfm_pwm = psfm_np_array, # (num_aa, 20)
     aa_indices = aa_indices, # (num_aa,)
     atom_attributes = atom_attributes, # list[np.ndarray=(num_atoms,1)]
     atom_indices = atom_indices, # (all_atoms_in_aa, )

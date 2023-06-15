@@ -208,7 +208,6 @@ def main():
   utils.add_argument(parser)
   args: utils.Args = parser.parse_args()
 
-
   torch.cuda.set_device(args.local_rank)
   device = torch.device('cuda', args.local_rank)
 
