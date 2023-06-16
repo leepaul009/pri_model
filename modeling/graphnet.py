@@ -199,12 +199,15 @@ class GraphNet(nn.Module):
             self.na_embeding_layer = TimeDistributed(self.na_embeding_layer)
 
         # TODO: if we 
+        self.reg_head = nn.Linear(in_features=hidden_size * 2, out_features=hidden_size, bias=False)
         self.reg_pred = nn.Linear(in_features=hidden_size, out_features=1, bias=False)
 
+        # use detectron2's box-head-wgt-init method to init fc's weight
+        nn.init.kaiming_uniform_(self.reg_head.weight, a=1)
         # TODO: init weight and bias
-        # nn.init.normal_(self.cls_score.weight, std=0.01)
+        # nn.init.normal_(self.reg_head.weight, std=0.001)
         nn.init.normal_(self.reg_pred.weight, std=0.001)
-        for l in [self.reg_pred]:
+        for l in [self.reg_head, self.reg_pred]:
             if l.bias is not None:
                 nn.init.constant_(l.bias, 0)
         
@@ -402,11 +405,13 @@ class GraphNet(nn.Module):
         
         # TODO: try different method to aggregate features rather than concat
         complex_embeddings = []
+        seq_len_per_complex = []
         for i in range(batch_size):
+            seq_len_per_complex.append((aa_embedding[i].shape[0], na_embedding[i].shape[0]))
             complex_emb = torch.cat([aa_embedding[i], na_embedding[i]]) # (n_aa+n_nc, h/2)
             complex_embeddings.append(complex_emb)
         # [bs, max(n_aa+n_nc), h/2], inputs_lengths: list of actual len_aa+len_nc of each batch
-        complex_embeddings, _ = utils.merge_tensors(complex_embeddings, device=device)
+        complex_embeddings, complex_lengths = utils.merge_tensors(complex_embeddings, device=device)
 
         # [bs, max(n_aa+n_nc), h/2], [bs, max(n_aa+n_nc), h/2]=> [bs, max(n_aa+n_nc), h]
         inputs = torch.cat([complex_embeddings, inputs], dim=-1) 
@@ -414,13 +419,27 @@ class GraphNet(nn.Module):
         # global_graph: GlobalGraphRes [bs, max(n_aa), h]
         hidden_states = self.global_graph(inputs, attention_mask, mapping)
         
+        # to list[complex_feat], list number = batch size
+        hidden_state_per_complex = utils.de_merge_tensors(hidden_states, complex_lengths)
+        combined_feat_per_complex = []
+        for i in range(batch_size):
+            len_aa, len_nc = seq_len_per_complex[i]
+            assert(complex_lengths[i] == len_aa + len_nc)
+            seq_feat_aa = hidden_state_per_complex[i][:len_aa] # (n_aa, h)
+            seq_feat_nc = hidden_state_per_complex[i][len_aa:] # (n_nc, h)
+            unit_feat_aa = torch.max(seq_feat_aa, dim=0)[0] # (h,)
+            unit_feat_nc = torch.max(seq_feat_nc, dim=0)[0] # (h,)
+            combined_feat_per_complex.append( torch.cat([unit_feat_aa, unit_feat_nc]).unsqueeze(0) ) # (1, h*2)
+        hidden_states = torch.cat(combined_feat_per_complex) # => (bs, h*2)
+
         # [bs, max(n_aa), h] => [bs, h]
-        hidden_states = torch.max(hidden_states, dim=1)[0]
+        # hidden_states = torch.max(hidden_states, dim=1)[0]
 
         # TODO: fine tune the structure of predicting score
-        # [bs, h] => [bs, 1]
-        outputs = self.reg_pred(hidden_states)
         
+        hidden_states = self.reg_head(hidden_states) # (bs, h*2)=>(bs, h)
+        outputs = self.reg_pred(hidden_states) # [bs, h] => [bs, 1]
+         
         labels = utils.get_from_mapping(mapping, 'label')
         labels = torch.tensor(labels, device=device, dtype=torch.float32).reshape(-1, 1) # [bs, 1]
 

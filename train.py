@@ -76,28 +76,30 @@ def main2():
 def learning_rate_decay(args, i_epoch, optimizer, optimizer_2=None):
   # utils.i_epoch = i_epoch
 
-  if 'set_predict' in args.other_params:
-      if not hasattr(args, 'set_predict_lr'):
-          args.set_predict_lr = 1.0
-      else:
-          args.set_predict_lr *= 0.9
+  epoch_update_lr = 100
+  if i_epoch > 0 and i_epoch % epoch_update_lr == 0:
+    for p in optimizer.param_groups:
+      p['lr'] *= 0.75
 
-      if i_epoch > 0 and i_epoch % 5 == 0:
-          for p in optimizer.param_groups:
-              p['lr'] *= 0.3
+  # if 'set_predict' in args.other_params:
+  #     if not hasattr(args, 'set_predict_lr'):
+  #         args.set_predict_lr = 1.0
+  #     else:
+  #         args.set_predict_lr *= 0.9
+  #     if i_epoch > 0 and i_epoch % 5 == 0:
+  #         for p in optimizer.param_groups:
+  #             p['lr'] *= 0.3
+  #     if 'complete_traj-3' in args.other_params:
+  #         assert False
+  # else:
+  #     if i_epoch > 0 and i_epoch % 5 == 0:
+  #         for p in optimizer.param_groups:
+  #             p['lr'] *= 0.3
 
-      if 'complete_traj-3' in args.other_params:
-          assert False
-
-  else:
-      if i_epoch > 0 and i_epoch % 5 == 0:
-          for p in optimizer.param_groups:
-              p['lr'] *= 0.3
-
-      if 'complete_traj-3' in args.other_params:
-          if i_epoch > 0 and i_epoch % 5 == 0:
-              for p in optimizer_2.param_groups:
-                  p['lr'] *= 0.3
+  #     if 'complete_traj-3' in args.other_params:
+  #         if i_epoch > 0 and i_epoch % 5 == 0:
+  #             for p in optimizer_2.param_groups:
+  #                 p['lr'] *= 0.3
 
 def save_ckpt(model, opt, save_dir, epoch, iter):
   if not os.path.exists(save_dir):
@@ -278,7 +280,7 @@ def main():
 
     for i_epoch in range(int(start_epoch), int(start_epoch + args.num_train_epochs)):
 
-      # learning_rate_decay(args, i_epoch, optimizer)
+      learning_rate_decay(args, i_epoch, optimizer)
       # get_rank
       if is_main_process():
         print('Epoch: {}/{}'.format(i_epoch, int(args.num_train_epochs)), end='  ')

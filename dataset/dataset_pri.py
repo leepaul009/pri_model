@@ -159,6 +159,10 @@ def pri_get_instance(input_complex, args):
   #       combine to single chain or create 2 channel?
   nucleotide_attributes = np.concatenate(nucleotide_attributes)
 
+  ###
+  na_jobid = input_complex['na_jobid']
+
+
   mapping.update(dict(
     aa_attributes = aa_attributes, # (num_aa, 20) ? + 30
     aa_hmm_pwm = hmm_np_array, # (num_aa, 30)

@@ -62,7 +62,7 @@ nohup python -u train.py --data_dir data/train --data_dir_for_val data/val --cor
 # will return pid, for example pid=2857798
 
 
-nohup python -u train.py --data_dir data/train --data_dir_for_val data/val --core_num 8 --output_dir output_pssm --train_batch_size 32 --num_train_epochs 300 --do_eval --pwm_type pssm   >train_pssm.log 2>&1 &
+nohup python -u train.py --data_dir data/train --data_dir_for_val data/val --core_num 8 --output_dir output_pssm_02 --train_batch_size 32 --num_train_epochs 300 --do_eval --pwm_type pssm   >train_pssm_02.log 2>&1 &
 5597
 ```
 
