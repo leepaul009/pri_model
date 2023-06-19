@@ -35,6 +35,11 @@ def add_argument(parser):
                         help="Whether to run eval on the dev set.")
     parser.add_argument("--do_test",
                         action='store_true')
+
+    parser.add_argument("--data_name",
+                        default='pri_data',
+                        type=str)
+
     parser.add_argument("--data_dir",
                         default='data/train/',
                         type=str)
@@ -213,23 +218,35 @@ def add_argument(parser):
     ## input features
     parser.add_argument("--pwm_type",
                         default='pssm',
-                        type=str)
+                        type=str,
+                        help='use pwm feature as input, and choose pwm type')
+    parser.add_argument("--use_chemistry",
+                        action='store_true',
+                        help='use chemistry feature as input')
 
 class Args:
     data_dir = None
     data_dir_for_val = None
     data_dir_for_test = None
+    data_name = None
     data_kind = None
-    debug = None
+    
+    do_train = None
+    do_eval = None
+    do_test = None
+
     train_batch_size = None
-    seed = None
     eval_batch_size = None
     test_batch_size = None
+
+    debug = None
+    seed = None
+
     distributed_training = None
     cuda_visible_device_num = None
     log_dir = None
     learning_rate = None
-    do_eval = None
+    
     hidden_size = None
     sub_graph_depth = None
     global_graph_depth = None
@@ -243,7 +260,7 @@ class Args:
     reuse_temp_file = None
     old_version = None
     model_recover_path = None
-    do_train = None
+    
     resume = None
     resume_path = None
     max_distance = None
@@ -262,7 +279,7 @@ class Args:
     lstm = None
     add_prefix = None
     attention_decay = None
-    do_test = None
+    
     placeholder = None
     multi = None
     method_span = None
@@ -277,8 +294,9 @@ class Args:
     nms_threshold = None
     inter_agent_types = None
     local_rank = None
-    ## 
+    ## input features
     pwm_type = None
+    use_chemistry = None
 
 args: Args = None
 

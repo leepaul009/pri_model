@@ -56,7 +56,7 @@ def process_sequence_without_coordinates(chain):
   return np.array(chain_by_int)
 
 
-def pri_get_instance(input_complex, args):
+def pri_get_instance(input_complex, args, other_inputs):
   """
   Process one input.
 
@@ -159,8 +159,81 @@ def pri_get_instance(input_complex, args):
   #       combine to single chain or create 2 channel?
   nucleotide_attributes = np.concatenate(nucleotide_attributes)
 
-  ###
-  na_jobid = input_complex['na_jobid']
+  ############ use chemistry feature as input ############
+  nc_feat_tensor = None
+  if args.use_chemistry and True:
+    na_jobid = input_complex['na_jobid']
+    
+    # dna_chemi_tensor = None
+    # rna_angul_tensor = None
+    # nc_seq_size = 0
+
+    temp_input_nucleotide = input_nucleotide.replace('|', '')
+    nc_whole_length = len(temp_input_nucleotide)
+
+    list_temp_arr = []
+    fdir = 'data/nc_data'
+    list_sub_path = na_jobid.split(',')
+    for sub_path in list_sub_path:
+      f = None
+      if 'DNA' in sub_path:
+        f = os.path.join(fdir, sub_path, '{}_EIIP.txt'.format(sub_path))
+      elif 'RNA' in sub_path: 
+        f = os.path.join(fdir, sub_path, '{}_spotrna1d.txt'.format(sub_path))
+      if os.path.exists(f):
+        temp_df = pd.read_csv(f, sep='\t')
+        temp_arr = temp_df.values[:,1:]
+        if len(temp_arr.shape) == 1:
+            temp_arr = temp_arr.reshape(len(temp_df), -1)
+        list_temp_arr.append(temp_arr)
+    # 
+    final_arr = np.concatenate(list_temp_arr, axis=0)
+
+    # # TODO: set fdir with parameter
+    # fdir = 'data/nc_data'
+    # if 'DNA' in input_complex['nucleic_acid_type_new']:
+    #   f = os.path.join(fdir, na_jobid, '{}_EIIP.txt'.format(na_jobid))
+    #   if os.path.exists(f):
+    #     dna_chemi_df = pd.read_csv(f, sep='\t')
+    #     dna_chemi_tensor = dna_chemi_df.iloc[:,:].values[:,1].reshape(-1,1) # (num_nc,)
+    #     nc_seq_size = dna_chemi_tensor.shape[0] # num_nc
+    #     # temp_input_nucleotide = input_nucleotide.replace('|', '')
+    #     assert(nc_seq_size == nc_whole_length)
+    # elif 'RNA' in input_complex['nucleic_acid_type_new']:
+    #   f = os.path.join(fdir, na_jobid, '{}_spotrna1d.txt'.format(na_jobid))
+    #   if os.path.exists(f):
+    #     rna_angul_df = pd.read_csv(f, sep='\t')
+    #     rna_angul_tensor = rna_angul_df.iloc[:,:].values[:,1:] # (num_nc, 9)
+    #     nc_seq_size = rna_angul_tensor.shape[0]
+    #     assert(rna_angul_tensor.shape[1] == 9)
+    #     # temp_input_nucleotide = input_nucleotide.replace('|', '')
+    #     assert(nc_seq_size == nc_whole_length)
+
+
+    # create other features for DNA/RNA
+    dna_cols = 1
+    rna_cols = 9
+    nc_feat_tensor = np.zeros((nc_whole_length, dna_cols + rna_cols), dtype=np.float32)
+    if final_arr.shape[1] == 1:
+      nc_feat_tensor[:, :dna_cols] = final_arr
+    else:
+      nc_feat_tensor[:, dna_cols:] = final_arr
+  
+  ############
+  # if args.use_chemistry and False:
+  #   temp_input_nucleotide = input_nucleotide.replace('|', '')
+  #   dna_cols = 1
+  #   rna_cols = 9
+  #   nc_feat_tensor = np.zeros((len(temp_input_nucleotide), dna_cols + rna_cols), dtype=np.float)
+
+  #   temp = other_inputs['other_feat']
+  #   if 'DNA' in input_complex['na_jobid']:
+  #     assert( temp.shape = (len(temp_input_nucleotide), 1) )
+  #     nc_feat_tensor[:, :dna_cols] = temp
+  #   elif 'RNA' in input_complex['na_jobid']:
+  #     assert( temp.shape = (len(temp_input_nucleotide), 9) )
+  #     nc_feat_tensor[:, dna_cols:] = temp
+  ############
 
 
   mapping.update(dict(
@@ -172,6 +245,95 @@ def pri_get_instance(input_complex, args):
     atom_attributes = atom_attributes, # list[np.ndarray=(num_atoms,1)]
     atom_indices = atom_indices, # (all_atoms_in_aa, )
     nucleotide_attributes = nucleotide_attributes, # (num_nc', 4) num_nc' = sum(all chain)
+    nucleotide_other_attributes = nc_feat_tensor, # (num_nc', 10) 
+    label = label_dG, # float
+  ))
+  return mapping
+
+
+def hox_get_instance(input_complex, args, other_inputs):
+  """
+  Process one input.
+
+  Arguments:
+  - input_complex: one complex containing a amino acid sequence and nucleotide sequence
+  
+  Returns:
+  map of input features and label.
+  """
+  mapping = {}
+
+  input_protein = input_complex["protein_sequence"] # string
+  input_nucleotide = input_complex["nucleotide_sequence"] # string
+  if 'zscore' in input_complex:
+    label_dG   = input_complex['zscore']
+  else:
+    label_dG   = input_complex['dG']
+
+  protein_sequences = process_sequence_without_coordinates(input_protein)
+  num_aa = len(protein_sequences)
+
+  # TODO: use bool instead.
+  aa_attributes = binarize_categorical(
+    protein_sequences, 20).astype(np.float32) # (seq_aa, 20)
+  aa_indices = np.array([i for i in range(num_aa)])
+
+  atom_attributes = []
+  atom_mass_attributes = []
+  atom_indices = []
+
+  for i, it in enumerate(protein_sequences): # per aa
+    aa = list_aa[it] # get aa string
+    aa_atoms = list(dictionary_covalent_bonds[aa].keys())
+    num_atoms = len(aa_atoms)
+    atom_type = np.array([list_atoms.index(x) for x in aa_atoms])
+    atom_mass = np.array([atom_type_mass[x] for x in atom_type])
+    
+    atom_type = atom_type.reshape(-1,1) # (num_atoms, 1)
+    atom_mass = atom_mass.reshape(-1,1) # (num_atoms, 1)
+    
+    atom_type = remove_nan(atom_type)
+    atom_mass = remove_nan(atom_mass)
+    
+    atom_attributes.append(atom_type)
+    atom_mass_attributes.append(atom_mass)
+
+    # indicates each atom belong to the index of aa
+    atom_indices.append(np.ones((num_atoms,), dtype=np.int32) * i)
+
+  atom_indices = np.concatenate(atom_indices, axis=0)
+  atom_indices = remove_nan(atom_indices)
+  aa_attributes = remove_nan(aa_attributes)
+  
+
+
+  ####################################
+  # process nucleotide data. nucleotide_to_index = {'A':0, 'C':1, 'G':2, 'T':3, 'U':3}
+  nucleotide_sequences = None
+  if '|' in input_nucleotide:
+    nucleotide_sequences = input_nucleotide.split('|')
+  else:
+    nucleotide_sequences = [input_nucleotide]
+  
+  nucleotide_attributes = list()
+  for seq in nucleotide_sequences:
+    seq_data = np.array( [nucleotide_to_index[it] for it in seq] )
+    seq_data = binarize_categorical(seq_data, 4).astype(np.float32) # (num_nc, 4)
+    seq_data = remove_nan(seq_data)
+    nucleotide_attributes.append(seq_data)
+  nucleotide_attributes = np.concatenate(nucleotide_attributes)
+
+
+  mapping.update(dict(
+    aa_attributes = aa_attributes, # (num_aa, 20) ? + 30
+    aa_hmm_pwm = None, # (num_aa, 30)
+    aa_pssm_pwm = None, # (num_aa, 20)
+    aa_psfm_pwm = None, # (num_aa, 20)
+    aa_indices = aa_indices, # (num_aa,)
+    atom_attributes = atom_attributes, # list[np.ndarray=(num_atoms,1)]
+    atom_indices = atom_indices, # (all_atoms_in_aa, )
+    nucleotide_attributes = nucleotide_attributes, # (num_nc', 4) num_nc' = sum(all chain)
+    nucleotide_other_attributes = None, # (num_nc', 10) 
     label = label_dG, # float
   ))
   return mapping
@@ -206,9 +368,20 @@ class PriDataset(torch.utils.data.Dataset):
       num_lines = 0
       for f in files:
         df = pd.read_csv(f, sep='\t')
+        if args.debug:
+          debug_len = min(640, len(df))
+          df = df.loc[:debug_len]
+          print("debug mode: only use {} items".format(debug_len))
         num_lines += len(df)
         data_frame_list.append(df)
       pbar = tqdm(total=num_lines)
+
+      # other inputs:
+      # other_data_dict = {}
+      # if args.use_chemistry:
+      #   other_data_f = os.path.join('data', 'other_feat.npy')
+      #   if (os.path.exists(other_data_f)):
+      #     other_data_dict = np.load(other_data_f, allow_pickle=True).item()
 
       queue = multiprocessing.Queue(args.core_num) # inputs container
       queue_res = multiprocessing.Queue() # outputs container
@@ -218,13 +391,20 @@ class PriDataset(torch.utils.data.Dataset):
         dis_list = []
         while True:
           # get one item(one row) from queue
+          other_inputs = dict()
+          # if args.use_chemistry:
+          #   data_item, other_inputs = queue.get()
+          # else:
           data_item = queue.get()
           if data_item is None:
               break
           # with open(file, "r", encoding='utf-8') as fin:
           #     lines = fin.readlines()[1:]
           # instance: dict
-          instance = pri_get_instance(data_item, args)
+          if args.data_name == 'hox_data':
+            instance = hox_get_instance(data_item, args, other_inputs)
+          else:
+            instance = pri_get_instance(data_item, args, other_inputs)
           if instance is not None:
               data_compress = zlib.compress(pickle.dumps(instance))
               res.append(data_compress)
@@ -246,6 +426,12 @@ class PriDataset(torch.utils.data.Dataset):
       for df in data_frame_list:
         for i in range(len(df)):
           assert df.loc[i] is not None
+          # if args.use_chemistry:
+          #   other_inputs = {
+          #     'other_feat' : other_data_dict[ df.loc[i]['complex_id'] ] # np.arr
+          #   }
+          #   queue.put( (df.loc[i], other_inputs) )
+          # else:
           queue.put(df.loc[i])
           pbar.update(1)
 

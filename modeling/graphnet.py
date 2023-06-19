@@ -87,6 +87,17 @@ class SubGraph(nn.Module):
             hidden_states = self.layers_2[layer_index](hidden_states)
 
         # apply max pooling along seq dim, output: [N, h]
+        # TODO: for tensor = (bs*max_seq, max_atoms, h), we should max pool along true atoms dim
+        '''
+        # suppose we have list_real_atoms_num
+        list_feat_per_aa = []
+        for i in range(hidden_states.shape[0]):
+            iend = list_real_atoms_num[i]
+            feat_per_aa = torch.max(hidden_states[i, :iend], dim=0)[0] # (max_atoms, h) => (real_atoms, h) => (h)
+            list_feat_per_aa.append(feat_per_aa)
+        final_feat = torch.cat(list_feat_per_aa)
+        return final_feat, ... # (bs*max_seq, h)
+        '''
         return torch.max(hidden_states, dim=1)[0], \
                torch.cat(utils.de_merge_tensors(hidden_states, lengths))
 
@@ -183,7 +194,7 @@ class GraphNet(nn.Module):
         else:
             NotImplemented
 
-
+        self.use_chemistry = args.use_chemistry
         self.use_conv = False
         # w=seq,h=4 ==> output: w'=seq-2(seq-3+1), h'=1(4-4+1)
         # h-kh+1:, w-kw+1:
@@ -192,17 +203,29 @@ class GraphNet(nn.Module):
         
         self.use_kmers = True
         if self.use_kmers:
-            self.kmers_net = KMersNet(base_channel=8, out_channels=hidden_size // 2)
+            out_channels = hidden_size // 2
+            if self.use_chemistry:
+                out_channels = hidden_size // 4
+            self.kmers_net = KMersNet(base_channel=8, out_channels=out_channels)
 
         if not self.use_kmers and not self.use_conv:
             self.na_embeding_layer = nn.Linear(in_features=4, out_features=hidden_size // 2, bias=False)
             self.na_embeding_layer = TimeDistributed(self.na_embeding_layer)
+
+        if self.use_chemistry:
+            # (num_nc, 1+9) => (num_nc, h/2)
+            self.na_chemi_layer = nn.Linear(in_features=10, out_features=hidden_size // 4, bias=False)
+            # self.na_comb_layer = nn.Linear(in_features=hidden_size, out_features=hidden_size // 2, bias=False)
+            # concat seq_feat and other_feat to (num_nc, h) => (num_nc, h/2)
+            # nn.init.kaiming_uniform_(self.na_chemi_layer.weight, a=1)
+            # nn.init.kaiming_uniform_(self.na_comb_layer.weight, a=1)
 
         # TODO: if we 
         self.reg_head = nn.Linear(in_features=hidden_size * 2, out_features=hidden_size, bias=False)
         self.reg_pred = nn.Linear(in_features=hidden_size, out_features=1, bias=False)
 
         # use detectron2's box-head-wgt-init method to init fc's weight
+
         nn.init.kaiming_uniform_(self.reg_head.weight, a=1)
         # TODO: init weight and bias
         # nn.init.normal_(self.reg_head.weight, std=0.001)
@@ -242,6 +265,28 @@ class GraphNet(nn.Module):
         for i in range(batch_size): # per chain
             a, b = self.atom_level_sub_graph(prot_atom_input_list_list[i])
             prot_states_batch.append(a)
+        
+        # TODO: combine bs*seq dim
+        '''
+        
+        prot_lengths = []
+        resi_lengths = []
+        for i in range(batch_size):
+            num_aa = len(atom_attributes[i])
+            prot_lengths.append(num_aa)
+            for j in range(len(atom_attributes[i])): # per aa
+                num_atom = len(atom_attributes[i][j])
+                resi_lengths.append(num_atom)
+        temp_tensor = torch.zeros([batch_size, max(prot_lengths), max(resi_lengths), 1], device=device)
+        for i in range(batch_size): # per chain
+            for j in range(len(atom_attributes[i])): # per aa
+                # np.array to tensor shape=[num_atoms, 1]
+                tensor = torch.tensor(atom_attributes[i][j], device=device) # (atoms, 1)
+                temp_tensor[i][j][:tensor.shape[0]] = tensor
+        temp_tensor = temp_tensor.reshape(batch_size*max(prot_lengths), max(resi_lengths), 1)
+        prot_hidden, _ = self.atom_level_sub_graph(temp_tensor)  # (bs*max_seq, h)
+        prot_hidden = prot_hidden.reshape(batch_size, max(prot_lengths), -1)
+        '''
 
         # TODO: decide if we should use subgraph of rdna atoms
         rdna_states_batch = []
@@ -249,7 +294,11 @@ class GraphNet(nn.Module):
             a, b = self.atom_level_sub_graph(drna_atom_input_list_list[i])
             rdna_states_batch.append(a)
 
-
+        # TODO:
+        '''
+        # (bs, max_seq, h) => list[ (real_seq, h) ]
+        
+        '''
 
         for i in range(batch_size):
             prot_feats = prot_states_batch[i] # [aa, h/2]
@@ -314,6 +363,7 @@ class GraphNet(nn.Module):
     def na_attribute_embeding(
             self,
             na_attributes : List[np.ndarray], 
+            na_other_attributes : List[np.ndarray], 
             # aa_indices,
             device, batch_size) -> Tuple[List[Tensor], List[int]]:
         """
@@ -338,13 +388,25 @@ class GraphNet(nn.Module):
             # (bs, 1, max(n_na), 4)->(bs, h/2, max(n_na)-2, 1)
             temp = self.na_conv2d(na_embedding.unsqueeze(1))
             # (bs, h/2, max(n_na)-2, 1) -> (bs, max(n_na)-2, h/2)
-            temp = temp.squeeze(-1).permute(0, 2, 1).contiguous()
-            na_embedding = F.relu(temp)
+            na_embedding = temp.squeeze(-1).permute(0, 2, 1).contiguous()
             lengths = [max(l-2, 1) for l in lengths]
         else:
             # (bs, max(n_na), 4)->(bs, max(n_na), h/2)
             na_embedding = self.na_embeding_layer(na_embedding)
-            na_embedding = F.relu(na_embedding)
+
+        if self.use_chemistry and na_other_attributes is not None:
+            chemi_input_list = []
+            for i in range(batch_size):
+                chemi_tensor = torch.tensor(na_other_attributes[i], device=device)
+                chemi_input_list.append(chemi_tensor)
+            # merge to Tensor=(bs, max(n_na), 10)
+            na_chemi_embedding, _ = utils.merge_tensors(chemi_input_list, device=device)
+            # (bs, max(n_na), 10)->(bs, max(n_na), h/4)
+            na_chemi_embedding = self.na_chemi_layer(na_chemi_embedding)
+            na_embedding = torch.cat([na_embedding, na_chemi_embedding], dim=-1) # (bs, max(n_na), h/2)
+            # na_embedding = self.na_comb_layer(na_embedding) # (bs, max(n_na), h) => (bs, max(n_na), h/2)
+
+        na_embedding = F.relu(na_embedding)
 
         return utils.de_merge_tensors(na_embedding, lengths), lengths
         # return na_embedding, lengths
@@ -375,6 +437,11 @@ class GraphNet(nn.Module):
         # DNA/RNA feature, tensor shape = (number_of_DNA/RNA, 4)
         na_attributes = utils.get_from_mapping(mapping, 'nucleotide_attributes') # List[np.ndarray=(n_nc, 4)]
 
+        if self.use_chemistry:
+            na_other_attributes = utils.get_from_mapping(mapping, 'nucleotide_other_attributes') # List[np.ndarray=(n_nc, 10)]
+        else:
+            na_other_attributes = None
+
         batch_size = len(aa_attributes)
 
         # compute embedding feature for amino acid sequence
@@ -383,7 +450,7 @@ class GraphNet(nn.Module):
         
         # compute embedding feature for DNA/RNA
         # list[Tensor=(n_nc, h/2)]
-        na_embedding, _ = self.na_attribute_embeding(na_attributes, device, batch_size)
+        na_embedding, _ = self.na_attribute_embeding(na_attributes, na_other_attributes, device, batch_size)
         
         # [bs, max(n_aa+n_nc), h/2]
         element_states_batch, lane_states_batch =\

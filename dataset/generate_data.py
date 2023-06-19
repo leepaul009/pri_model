@@ -159,9 +159,13 @@ def GenerateData(file):
   print("finally we have {} train_data, {} val_data, {} test_data".format(
     len(data_train), len(data_val), len(data_test)))
 
-  data_train.to_csv('data/train/train.csv', index=False, sep='\t')
-  data_val.to_csv('data/val/val.csv', index=False, sep='\t')
-  data_test.to_csv('data/test/test.csv', index=False, sep='\t')
+  data_train.to_csv('data/debug/train.csv', index=False, sep='\t')
+  data_val.to_csv('data/debug/val.csv', index=False, sep='\t')
+  data_test.to_csv('data/debug/test.csv', index=False, sep='\t')
+
+  # data_train.to_csv('data/train/train.csv', index=False, sep='\t')
+  # data_val.to_csv('data/val/val.csv', index=False, sep='\t')
+  # data_test.to_csv('data/test/test.csv', index=False, sep='\t')
 
 if __name__ == '__main__':
   parser = argparse.ArgumentParser()

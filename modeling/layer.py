@@ -2,6 +2,8 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+from modeling.utils import c2_msra_fill
+
 class Conv2d(nn.Module):
     def __init__(self, 
                  in_channels, 
@@ -20,6 +22,16 @@ class Conv2d(nn.Module):
         self.conv = nn.Conv2d(in_channels, out_channels, kernel_size, stride, padding=padding)
         self.bn = nn.BatchNorm2d(out_channels) if bn else None
         self.relu = nn.ReLU(inplace=True) if relu else None
+
+        # for layer in [self.conv]:
+        #   if layer is not None:  # shortcut can be None
+        #     c2_msra_fill(layer)
+        for m in self.modules():
+          if isinstance(m, nn.Conv2d):
+            c2_msra_fill(m)
+          elif isinstance(m, nn.BatchNorm2d):
+            m.weight.data.fill_(1)
+            m.bias.data.zero_()
 
     def forward(self, x):
         x = self.conv(x)
@@ -45,6 +57,23 @@ class ResidualBlock2D(nn.Module):
         nn.BatchNorm2d(planes*4),
     )
     self.relu  = nn.ReLU(inplace=True)
+
+    # for layer in [self.c1, self.c2, self.c3]:
+    #   if layer is not None:  # shortcut can be None
+    #     c2_msra_fill(layer)
+    
+    # # TODO: to check if this is valid
+    # for i in range(len(self.downsample)):
+    #   if isinstance(self.downsample[i], nn.Conv2d):
+    #     c2_msra_fill(layer)
+    
+    for m in self.modules():
+      if isinstance(m, nn.Conv2d):
+        c2_msra_fill(m)
+      elif isinstance(m, nn.BatchNorm2d):
+        m.weight.data.fill_(1)
+        m.bias.data.zero_()
+
 
   def forward(self, x):
     identity = x
@@ -97,7 +126,7 @@ class KMersNet(nn.Module):
     
     x = self.fc(x) # (N,Seq,C')
     # x = self.bn(x)
-    x = self.relu(x)
+    # x = self.relu(x)
     return x
 
 

@@ -12,6 +12,11 @@ class TimeDistributed(nn.Module):
         super(TimeDistributed, self).__init__()
         self.module = module
         self.batch_first = batch_first
+        
+        if isinstance(module, nn.Linear):
+            nn.init.kaiming_uniform_(self.module.weight, a=1)
+            if self.module.bias is not None:
+                nn.init.constant_(self.module.bias, 0)
 
     def forward(self, x):
         if len(x.size()) <= 2:
@@ -33,6 +38,10 @@ class Dense(nn.Module):
         self.activation = activation
         self.linear = torch.nn.Linear(in_features, out_features, bias=use_bias)
         
+        nn.init.kaiming_uniform_(self.linear.weight, a=1)
+        if self.linear.bias is not None:
+            nn.init.constant_(self.linear.bias, 0)
+
     def forward(self, hidden_states):
         hidden_states = self.linear(hidden_states)
         if self.activation == 'relu':
