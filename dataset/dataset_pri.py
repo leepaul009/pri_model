@@ -458,8 +458,6 @@ class PriDataset(torch.utils.data.Dataset):
     else:
       assert False
 
-
-
   def __len__(self):
       return len(self.ex_list)
 
@@ -472,6 +470,57 @@ class PriDataset(torch.utils.data.Dataset):
       data_compress = self.ex_list[idx]
       instance = pickle.loads(zlib.decompress(data_compress))
       return instance
+
+
+class PriDatasetExt(torch.utils.data.Dataset):
+  def __init__(self, args, data_dir, batch_size, to_screen=True):
+    if not isinstance(data_dir, list):
+      data_dir = [data_dir]
+    self.ex_list = []
+    self.args = args
+    self.batch_size = batch_size
+
+    files = []
+    for each_dir in data_dir:
+      root, dirs, cur_files = os.walk(each_dir).__next__()
+      files.extend([os.path.join(each_dir, file) for file in cur_files 
+                    if file.endswith("csv") and not file.startswith('.')])
+    print("Create dataset to following files: {}".format(files))
+
+    data_frame_list = []
+    num_lines = 0
+    for f in files:
+      df = pd.read_csv(f, sep='\t')
+      if args.debug:
+        debug_len = min(640, len(df))
+        df = df.loc[:debug_len]
+        print("debug mode: only use {} items".format(debug_len))
+      num_lines += len(df)
+      data_frame_list.append(df)
+    # pbar = tqdm(total=num_lines)
+
+    self.merged_df = None
+    if len(data_frame_list) > 1:
+      self.merged_df = pd.concat(data_frame_list)
+    else:
+      self.merged_df = data_frame_list[0]
+    print("Read all dataframe with length = {}".format(num_lines))
+
+  def __len__(self):
+    # return len(self.ex_list)
+    return len(self.merged_df)
+
+  def __getitem__(self, idx):
+    instance = self.merged_df.loc[idx]
+    other_inputs = dict()
+    if self.args.data_name == 'hox_data':
+      output = hox_get_instance(instance, self.args, other_inputs)
+    else:
+      output = pri_get_instance(instance, self.args, other_inputs)
+    
+    return output
+
+
 
 # to be used
 def collate_fn(batch):

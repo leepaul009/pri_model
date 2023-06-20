@@ -534,7 +534,10 @@ class PostProcess(nn.Module):
         
         # num_reg, re_loss
         for key in post_out:
-            metrics[key] += post_out[key]
+            if key == 'reg_loss':
+                metrics[key] += post_out[key].item()
+            else:
+                metrics[key] += post_out[key]
             # print("post process: {} = {}".format(key, metrics[key]))
 
         if preds is not None and input is not None:

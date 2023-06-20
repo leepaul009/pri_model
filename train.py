@@ -19,9 +19,13 @@ from torch.nn.parallel import DistributedDataParallel
 
 from comm import get_world_size, get_rank, is_main_process, synchronize, all_gather, reduce_dict
 import utils
-from dataset.dataset_pri import PriDataset
+from dataset.dataset_pri import PriDataset, PriDatasetExt
 
 from modeling.graphnet import GraphNet, PostProcess
+
+torch.backends.cudnn.enabled = True
+torch.backends.cudnn.benchmark = True 
+
 
 def main2():
 
@@ -248,7 +252,10 @@ def main():
 
   
   if args.do_test:
-    test_dataset = PriDataset(args, args.data_dir_for_test, args.test_batch_size)
+    if args.data_name == 'hox_data':
+      test_dataset = PriDatasetExt(args, args.data_dir_for_test, args.test_batch_size)
+    else:
+      test_dataset = PriDataset(args, args.data_dir_for_test, args.test_batch_size)
     # sampler = DistributedSampler(dataset, num_replicas=get_world_size(), rank=get_rank())
     test_sampler = SequentialSampler(test_dataset)
     test_dataloader = torch.utils.data.DataLoader(
@@ -260,16 +267,20 @@ def main():
     test(model, test_dataloader, post_process, start_epoch, device, args)
 
   else:
-
-    train_dataset = PriDataset(args, args.data_dir, args.train_batch_size)
+    if args.data_name == 'hox_data':
+      train_dataset = PriDatasetExt(args, args.data_dir, args.train_batch_size)
+    else:
+      train_dataset = PriDataset(args, args.data_dir, args.train_batch_size)
     train_sampler = DistributedSampler(train_dataset, num_replicas=get_world_size(), rank=get_rank())
     train_dataloader = torch.utils.data.DataLoader(
       train_dataset, sampler=train_sampler,
       batch_size=args.train_batch_size // get_world_size(),
       collate_fn=utils.batch_list_to_batch_tensors)
     
-
-    val_dataset = PriDataset(args, args.data_dir_for_val, args.eval_batch_size)
+    if args.data_name == 'hox_data':
+      val_dataset = PriDatasetExt(args, args.data_dir_for_val, args.eval_batch_size)
+    else:
+      val_dataset = PriDataset(args, args.data_dir_for_val, args.eval_batch_size)
     # sampler = DistributedSampler(dataset, num_replicas=get_world_size(), rank=get_rank())
     val_sampler = SequentialSampler(val_dataset)
     val_dataloader = torch.utils.data.DataLoader(
