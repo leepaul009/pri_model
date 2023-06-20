@@ -41,13 +41,13 @@ def add_argument(parser):
                         type=str)
 
     parser.add_argument("--data_dir",
-                        default='data/train/',
+                        default='data/pri_data/train/',
                         type=str)
     parser.add_argument("--data_dir_for_val",
-                        default='data/val/',
+                        default='data/pri_data/val/',
                         type=str)
     parser.add_argument("--data_dir_for_test",
-                        default='data/test/',
+                        default='data/pri_data/test/',
                         type=str)
     parser.add_argument("--output_dir", default="tmp/", type=str)
     parser.add_argument("--log_dir", default=None, type=str)
