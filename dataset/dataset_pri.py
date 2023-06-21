@@ -20,6 +20,7 @@ from preprocessing.protein_chemistry import list_aa, \
   aa_to_index, dictionary_covalent_bonds, list_atoms, atom_type_mass, \
   nucleotide_to_index
 
+MAX_NUM_ATOMS_IN_AA = 15
 
 def remove_nan(matrix,padding_value=0.):
   aa_has_nan = np.isnan(matrix).reshape([len(matrix),-1]).max(-1)
@@ -86,7 +87,7 @@ def pri_get_instance(input_complex, args, other_inputs):
   atom_attributes = []
   atom_mass_attributes = []
   atom_indices = []
-
+  aa_lengths = []
   for i, it in enumerate(protein_sequences): # per aa
     aa = list_aa[it] # get aa string
     aa_atoms = list(dictionary_covalent_bonds[aa].keys())
@@ -94,8 +95,8 @@ def pri_get_instance(input_complex, args, other_inputs):
     atom_type = np.array([list_atoms.index(x) for x in aa_atoms])
     atom_mass = np.array([atom_type_mass[x] for x in atom_type])
     
-    atom_type = atom_type.reshape(-1,1) # (num_atoms, 1)
-    atom_mass = atom_mass.reshape(-1,1) # (num_atoms, 1)
+    # atom_type = atom_type.reshape(-1,1) # (num_atoms, 1)
+    # atom_mass = atom_mass.reshape(-1,1) # (num_atoms, 1)
     
     atom_type = remove_nan(atom_type)
     atom_mass = remove_nan(atom_mass)
@@ -105,6 +106,12 @@ def pri_get_instance(input_complex, args, other_inputs):
 
     # indicates each atom belong to the index of aa
     atom_indices.append(np.ones((num_atoms,), dtype=np.int32) * i)
+    aa_lengths.append(num_atoms)
+
+  feature_by_atom = np.zeros((num_aa, MAX_NUM_ATOMS_IN_AA), dtype=np.float32)
+  for i in range(num_aa):
+    feature_by_atom[i, :aa_lengths[i]] = atom_attributes[i]
+
 
   atom_indices = np.concatenate(atom_indices, axis=0)
   atom_indices = remove_nan(atom_indices)
@@ -242,8 +249,12 @@ def pri_get_instance(input_complex, args, other_inputs):
     aa_pssm_pwm = pssm_np_array, # (num_aa, 20)
     aa_psfm_pwm = psfm_np_array, # (num_aa, 20)
     aa_indices = aa_indices, # (num_aa,)
-    atom_attributes = atom_attributes, # list[np.ndarray=(num_atoms,1)]
+    #
+    # atom_attributes = atom_attributes, # list[np.ndarray=(num_atoms,1)]
+    atom_attributes = feature_by_atom, # (num_aa, MAX_NUM_ATOMS)
+    aa_lengths = aa_lengths, # per aa length
     atom_indices = atom_indices, # (all_atoms_in_aa, )
+    #
     nucleotide_attributes = nucleotide_attributes, # (num_nc', 4) num_nc' = sum(all chain)
     nucleotide_other_attributes = nc_feat_tensor, # (num_nc', 10) 
     label = label_dG, # float

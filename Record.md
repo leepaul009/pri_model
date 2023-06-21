@@ -58,10 +58,6 @@ nohup python -u train.py --data_dir data/train --data_dir_for_val data/val --cor
 
 ### record 2023/06/19
 ```
-
-
-
-
 ```
 
 
@@ -99,7 +95,12 @@ pretrain with table_hox_zscore_102107 dataset(very big dataset), face a memory e
 ```
 
 
+### record 2023/06/20
+```
 
+
+
+```
 
 
 

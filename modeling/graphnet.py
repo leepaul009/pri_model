@@ -33,8 +33,8 @@ class SubGraph(nn.Module):
                                      for _ in range(depth)])
         self.layers_2 = nn.ModuleList([LayerNorm(hidden_size) for _ in range(depth)])
         
-        if config['point_level-4-3']:
-            self.layer_0_again = MLP(hidden_size)
+        #if config['point_level-4-3']:
+        self.layer_0_again = MLP(hidden_size)
         
         if config['use_atom_embedding']:
             atom_nfeatures = config['atom_nfeatures']
@@ -43,7 +43,6 @@ class SubGraph(nn.Module):
             self.layer_0 = MLP(atom_nfeatures, hidden_size)
         
         self.config = config
-
 
     # input_list:
     #   case1: a chain, shape=residues*[atoms, hidden] (att along atoms)
@@ -100,6 +99,48 @@ class SubGraph(nn.Module):
         '''
         return torch.max(hidden_states, dim=1)[0], \
                torch.cat(utils.de_merge_tensors(hidden_states, lengths))
+
+    def forward1(self, input : Tensor, lengths: Tensor):
+        device = input.device
+        batch_size = input.shape[0]
+        max_vector_num = input.shape[1]
+
+        attention_mask = torch.zeros(
+            [batch_size, max_vector_num, max_vector_num], device=device)
+        
+        if self.config['use_atom_embedding']:
+            # [max_atoms,1] => [max_atoms,12]
+            if input.type is not torch.long:
+                input = input.type(torch.long).squeeze(-1) # (N, seq,1) -> (N,seq,)
+            hidden_states = self.atom_emb_layer(input)
+
+        hidden_states = self.layer_0(hidden_states)
+
+        # if self.config['point_level-4-3']:
+        hidden_states = self.layer_0_again(hidden_states)
+        
+        # mask sequence dim as each item in batch has difference seq length
+        for i in range(batch_size):
+            assert lengths[i] > 0
+            attention_mask[i, :lengths[i], :lengths[i]].fill_(1)
+
+        for layer_index, layer in enumerate(self.layers):
+            temp = hidden_states
+            hidden_states = layer(hidden_states, attention_mask)
+            hidden_states = F.relu(hidden_states)
+            hidden_states = hidden_states + temp
+            hidden_states = self.layers_2[layer_index](hidden_states)
+
+        list_hidden_states = []
+        for i in range(batch_size):
+            iend = lengths[i]
+            hidden_states_per_aa = torch.max(hidden_states[i, :iend], dim=1)[0]
+            list_hidden_states.append(hidden_states_per_aa)
+        hidden_states = torch.cat(list_hidden_states)
+
+        return hidden_states
+        # return torch.max(hidden_states, dim=1)[0], \
+        #        torch.cat(utils.de_merge_tensors(hidden_states, lengths))
 
 class PredLoss(nn.Module):
     def __init__(self, config):
@@ -239,8 +280,9 @@ class GraphNet(nn.Module):
     def forward_encode_sub_graph(
             self, 
             mapping: List[Dict],  # not used
-            atom_attributes, # List[List[np.ndarray]]
-            atom_indices, # not used
+            atom_attributes, # List[np.ndarray]
+            aa_lengths, # List[List[Int]]
+            # atom_indices, # not used
             na_embedding,
             # matrix: List[np.ndarray], 
             # polyline_spans: List[List[slice]],
@@ -250,9 +292,9 @@ class GraphNet(nn.Module):
         :param polyline_spans: vectors of i_th element is matrix[polyline_spans[i]]
         :return: hidden states of all elements and hidden states of lanes
         """
+        # TODO: remove
         prot_atom_input_list_list = []
         drna_atom_input_list_list = []
-
         for i in range(batch_size): # per chain
             input_list = []
             for j in range(len(atom_attributes[i])): # per aa
@@ -261,11 +303,7 @@ class GraphNet(nn.Module):
                 input_list.append(tensor)
             prot_atom_input_list_list.append(input_list)
 
-        prot_states_batch = []
-        for i in range(batch_size): # per chain
-            a, b = self.atom_level_sub_graph(prot_atom_input_list_list[i])
-            prot_states_batch.append(a)
-        
+
         # TODO: combine bs*seq dim
         '''
         
@@ -287,6 +325,45 @@ class GraphNet(nn.Module):
         prot_hidden, _ = self.atom_level_sub_graph(temp_tensor)  # (bs*max_seq, h)
         prot_hidden = prot_hidden.reshape(batch_size, max(prot_lengths), -1)
         '''
+        # slice(n1, n2)
+        # prot_lengths = []
+        # resi_lengths = []
+        # prot_len_offset = 0
+        seq_slices = []
+        rearraged_data = []
+        # for i in range(batch_size):
+        #     seq_len = len(aa_lengths[i])
+        #     for num_atom in aa_lengths[i]:
+        #     prot_len = len(atom_attributes[i])
+        #     prot_lengths.append(prot_len_offset + prot_len)
+        #     seq_slices.append(slice(prot_len_offset, prot_len_offset + prot_len))
+        #     prot_len_offset += prot_len
+
+        #     for j in range(len(atom_attributes[i])): # per aa
+        #         num_atom = len(atom_attributes[i][j])
+        #         resi_lengths.append(num_atom)
+        #         rearraged_data.append(atom_attributes[i][j])
+        rearraged_data, prot_lengths = utils.merge_tensors(atom_attributes, device) # (N, max(aa), max(atoms))
+        rearraged_data = rearraged_data.reshape(batch_size * rearraged_data.shape[1], rearraged_data.shape[2], 1)
+        padding_aa_lengths = torch.zeros([batch_size, max(prot_lengths)], device=device) 
+        for i in range(batch_size):
+            for j in prot_lengths[i]:
+                padding_aa_lengths[i,j] = aa_lengths[i][j]
+        padding_aa_lengths = padding_aa_lengths.reshape(-1) # (N * max(aa),)
+
+        out1 = self.atom_level_sub_graph(rearraged_data, padding_aa_lengths)
+
+        # prot_states_batch = []
+        # for i in range(batch_size):
+        #     prot_states_batch.append(out1[seq_slices[i], :])
+
+
+        # TODO: to remove
+        prot_states_batch = []
+        for i in range(batch_size): # per chain
+            a, b = self.atom_level_sub_graph(prot_atom_input_list_list[i])
+            prot_states_batch.append(a)
+        
 
         # TODO: decide if we should use subgraph of rdna atoms
         rdna_states_batch = []
@@ -433,7 +510,8 @@ class GraphNet(nn.Module):
 
         aa_indices = utils.get_from_mapping(mapping, 'aa_indices') # not used
         atom_attributes = utils.get_from_mapping(mapping, 'atom_attributes') # List[List[np.ndarray=(n_atoms,)]]
-        atom_indices = utils.get_from_mapping(mapping, 'atom_indices')
+        aa_lengths = utils.get_from_mapping(mapping, 'aa_lengths') # List[List[int]]
+        # atom_indices = utils.get_from_mapping(mapping, 'atom_indices')
         # DNA/RNA feature, tensor shape = (number_of_DNA/RNA, 4)
         na_attributes = utils.get_from_mapping(mapping, 'nucleotide_attributes') # List[np.ndarray=(n_nc, 4)]
 
@@ -454,10 +532,7 @@ class GraphNet(nn.Module):
         
         # [bs, max(n_aa+n_nc), h/2]
         element_states_batch, lane_states_batch =\
-            self.forward_encode_sub_graph(
-                mapping, 
-                atom_attributes, atom_indices, na_embedding,
-                device, batch_size)
+            self.forward_encode_sub_graph(mapping, atom_attributes, aa_lengths, na_embedding, device,  batch_size)
         
 
         # [bs, max(n_aa+n_nc), h/2], inputs_lengths: list of actual len_aa+len_nc of each batch
