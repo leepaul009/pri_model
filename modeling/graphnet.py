@@ -47,12 +47,14 @@ class SubGraph(nn.Module):
     # input_list:
     #   case1: a chain, shape=residues*[atoms, hidden] (att along atoms)
     #   case2: a batch of chains, shape=N*[residues, hidden] (att along residues)
-    def forward(self, input_list : List[Tensor]):
-        batch_size = len(input_list)
-        device = input_list[0].device
+    # def forward1(self, input_list : List[Tensor]):
+    def forward(self, hidden_states : Tensor, lengths: List[int]):
+        batch_size = hidden_states.shape[0]
+        device = hidden_states.device
         # input_list is list of tensor[nodes(atom/aa), hidden]
         # merge with padding: hidden_states = [lines, max_nodes, hidden]
-        hidden_states, lengths = utils.merge_tensors(input_list, device) # [aa, max_atoms, h]
+        # hidden_states, lengths = utils.merge_tensors(input_list, device) # [aa, max_atoms, h]
+        # hidden_states = input.unsqueeze(-1) # (aa, max(num_atoms), h)
         # hidden_size = hidden_states.shape[2] # here hidden size is input's
         max_vector_num = hidden_states.shape[1] # do att along this dim
 
@@ -62,13 +64,11 @@ class SubGraph(nn.Module):
         if self.config['use_atom_embedding']:
             # [max_atoms,1] => [max_atoms,12]
             if hidden_states.type is not torch.long:
-                hidden_states = hidden_states.type(torch.long).squeeze(-1)
-            hidden_states = self.atom_emb_layer(hidden_states)
+                hidden_states = hidden_states.type(torch.long) # (aa, max(num_atoms))
+            hidden_states = self.atom_emb_layer(hidden_states) # (aa, max(num_atoms), e)
 
         hidden_states = self.layer_0(hidden_states)
-
-        if self.config['point_level-4-3']:
-            hidden_states = self.layer_0_again(hidden_states)
+        hidden_states = self.layer_0_again(hidden_states) # (aa, max(num_atoms), h/2)
         
         # mask sequence dim as each item in batch has difference seq length
         for i in range(batch_size):
@@ -85,22 +85,9 @@ class SubGraph(nn.Module):
             hidden_states = hidden_states + temp
             hidden_states = self.layers_2[layer_index](hidden_states)
 
-        # apply max pooling along seq dim, output: [N, h]
-        # TODO: for tensor = (bs*max_seq, max_atoms, h), we should max pool along true atoms dim
-        '''
-        # suppose we have list_real_atoms_num
-        list_feat_per_aa = []
-        for i in range(hidden_states.shape[0]):
-            iend = list_real_atoms_num[i]
-            feat_per_aa = torch.max(hidden_states[i, :iend], dim=0)[0] # (max_atoms, h) => (real_atoms, h) => (h)
-            list_feat_per_aa.append(feat_per_aa)
-        final_feat = torch.cat(list_feat_per_aa)
-        return final_feat, ... # (bs*max_seq, h)
-        '''
-        return torch.max(hidden_states, dim=1)[0], \
-               torch.cat(utils.de_merge_tensors(hidden_states, lengths))
+        return torch.max(hidden_states, dim=1)[0] # (aa, h) # , torch.cat(utils.de_merge_tensors(hidden_states, lengths))
 
-    def forward1(self, input : Tensor, lengths: Tensor):
+    def forward2(self, input : Tensor, lengths: Tensor):
         device = input.device
         batch_size = input.shape[0]
         max_vector_num = input.shape[1]
@@ -121,7 +108,7 @@ class SubGraph(nn.Module):
         
         # mask sequence dim as each item in batch has difference seq length
         for i in range(batch_size):
-            assert lengths[i] > 0
+            # assert lengths[i] > 0
             attention_mask[i, :lengths[i], :lengths[i]].fill_(1)
 
         for layer_index, layer in enumerate(self.layers):
@@ -134,8 +121,9 @@ class SubGraph(nn.Module):
         list_hidden_states = []
         for i in range(batch_size):
             iend = lengths[i]
-            hidden_states_per_aa = torch.max(hidden_states[i, :iend], dim=1)[0]
-            list_hidden_states.append(hidden_states_per_aa)
+            iend = max(1, iend)
+            hidden_states_per_aa = torch.max(hidden_states[i, :iend], dim=0)[0]
+            list_hidden_states.append(hidden_states_per_aa.unsqueeze(0))
         hidden_states = torch.cat(list_hidden_states)
 
         return hidden_states
@@ -277,113 +265,96 @@ class GraphNet(nn.Module):
         
         self.loss = PredLoss(config)
 
-    def forward_encode_sub_graph(
+    def forward_encode_sub_graph2(
             self, 
-            mapping: List[Dict],  # not used
             atom_attributes, # List[np.ndarray]
             aa_lengths, # List[List[Int]]
-            # atom_indices, # not used
-            na_embedding,
-            # matrix: List[np.ndarray], 
-            # polyline_spans: List[List[slice]],
-            device, batch_size) -> Tuple[List[Tensor], List[Tensor]]:
+            nc_embedding,
+            nc_lengths, # [List[Int]]
+            device, batch_size) -> Tuple[Tensor, Tensor]:
         """
         :param matrix: each value in list is vectors of all element (shape [-1, 128])
         :param polyline_spans: vectors of i_th element is matrix[polyline_spans[i]]
         :return: hidden states of all elements and hidden states of lanes
         """
-        # TODO: remove
-        prot_atom_input_list_list = []
-        drna_atom_input_list_list = []
-        for i in range(batch_size): # per chain
-            input_list = []
-            for j in range(len(atom_attributes[i])): # per aa
-                # np.array to tensor shape=[num_atoms, 1]
-                tensor = torch.tensor(atom_attributes[i][j], device=device)
-                input_list.append(tensor)
-            prot_atom_input_list_list.append(input_list)
-
-
-        # TODO: combine bs*seq dim
-        '''
-        
-        prot_lengths = []
-        resi_lengths = []
+        list_atom_attributes = []
+        for it in atom_attributes:
+            it_tensor = torch.tensor(it, device=device)
+            list_atom_attributes.append(it_tensor)
+        rearraged_data, prot_lengths \
+            = utils.merge_tensors(list_atom_attributes, device) # (N, max(aa), max(atoms))
+        rearraged_data = rearraged_data.reshape(-1, rearraged_data.shape[2], 1)
+        padding_aa_lengths = torch.zeros([batch_size, max(prot_lengths)], dtype=torch.long, device=device) 
         for i in range(batch_size):
-            num_aa = len(atom_attributes[i])
-            prot_lengths.append(num_aa)
-            for j in range(len(atom_attributes[i])): # per aa
-                num_atom = len(atom_attributes[i][j])
-                resi_lengths.append(num_atom)
-        temp_tensor = torch.zeros([batch_size, max(prot_lengths), max(resi_lengths), 1], device=device)
-        for i in range(batch_size): # per chain
-            for j in range(len(atom_attributes[i])): # per aa
-                # np.array to tensor shape=[num_atoms, 1]
-                tensor = torch.tensor(atom_attributes[i][j], device=device) # (atoms, 1)
-                temp_tensor[i][j][:tensor.shape[0]] = tensor
-        temp_tensor = temp_tensor.reshape(batch_size*max(prot_lengths), max(resi_lengths), 1)
-        prot_hidden, _ = self.atom_level_sub_graph(temp_tensor)  # (bs*max_seq, h)
-        prot_hidden = prot_hidden.reshape(batch_size, max(prot_lengths), -1)
-        '''
-        # slice(n1, n2)
-        # prot_lengths = []
-        # resi_lengths = []
-        # prot_len_offset = 0
-        seq_slices = []
-        rearraged_data = []
-        # for i in range(batch_size):
-        #     seq_len = len(aa_lengths[i])
-        #     for num_atom in aa_lengths[i]:
-        #     prot_len = len(atom_attributes[i])
-        #     prot_lengths.append(prot_len_offset + prot_len)
-        #     seq_slices.append(slice(prot_len_offset, prot_len_offset + prot_len))
-        #     prot_len_offset += prot_len
-
-        #     for j in range(len(atom_attributes[i])): # per aa
-        #         num_atom = len(atom_attributes[i][j])
-        #         resi_lengths.append(num_atom)
-        #         rearraged_data.append(atom_attributes[i][j])
-        rearraged_data, prot_lengths = utils.merge_tensors(atom_attributes, device) # (N, max(aa), max(atoms))
-        rearraged_data = rearraged_data.reshape(batch_size * rearraged_data.shape[1], rearraged_data.shape[2], 1)
-        padding_aa_lengths = torch.zeros([batch_size, max(prot_lengths)], device=device) 
-        for i in range(batch_size):
-            for j in prot_lengths[i]:
+            for j in range(prot_lengths[i]):
                 padding_aa_lengths[i,j] = aa_lengths[i][j]
         padding_aa_lengths = padding_aa_lengths.reshape(-1) # (N * max(aa),)
 
-        out1 = self.atom_level_sub_graph(rearraged_data, padding_aa_lengths)
-
-        # prot_states_batch = []
-        # for i in range(batch_size):
-        #     prot_states_batch.append(out1[seq_slices[i], :])
-
-
-        # TODO: to remove
-        prot_states_batch = []
-        for i in range(batch_size): # per chain
-            a, b = self.atom_level_sub_graph(prot_atom_input_list_list[i])
-            prot_states_batch.append(a)
-        
+        aa_embedding = self.atom_level_sub_graph(rearraged_data, padding_aa_lengths) # (N*max(num_aa), 64)
+        aa_embedding = aa_embedding.reshape(batch_size, -1, aa_embedding.shape[-1]) # (N, max(num_aa), 64)
 
         # TODO: decide if we should use subgraph of rdna atoms
-        rdna_states_batch = []
-        for i in range(len(drna_atom_input_list_list)): # per chain
-            a, b = self.atom_level_sub_graph(drna_atom_input_list_list[i])
-            rdna_states_batch.append(a)
-
-        # TODO:
-        '''
-        # (bs, max_seq, h) => list[ (real_seq, h) ]
-        
-        '''
-
+        # query => key : DNA/RNA => protein
+        attention_mask = torch.zeros([batch_size, nc_embedding.shape[1], aa_embedding.shape[1]], device=device)
         for i in range(batch_size):
-            prot_feats = prot_states_batch[i] # [aa, h/2]
-            if len(rdna_states_batch) != 0:
-                rdna_feats = rdna_states_batch[i] # [nc, h/2]
-            else:
-                # rdna_feats = prot_feats
-                rdna_feats = na_embedding[i] # (n_nc, h/2)
+            attention_mask[i, :nc_lengths[i], :prot_lengths[i]].fill_(1)
+        nc_embedding = nc_embedding + self.laneGCN_A2L(nc_embedding, aa_embedding, attention_mask)
+        
+        # DNA/RNA => DNA/RNA
+        attention_mask = torch.zeros([batch_size, nc_embedding.shape[1], nc_embedding.shape[1]], device=device)
+        for i in range(batch_size):
+            attention_mask[i, :nc_lengths[i], :nc_lengths[i]].fill_(1)
+        nc_embedding = nc_embedding + self.laneGCN_L2L(nc_embedding, attention_mask)
+        
+        # protein => DNA/RNA
+        attention_mask = torch.zeros([batch_size, aa_embedding.shape[1], nc_embedding.shape[1]], device=device)
+        for i in range(batch_size):
+            attention_mask[i, :prot_lengths[i], :nc_lengths[i]].fill_(1)
+        aa_embedding = aa_embedding + self.laneGCN_L2A(aa_embedding, nc_embedding, attention_mask)
+        
+        # protein => protein
+        if self.use_A2A:
+            attention_mask = torch.zeros([batch_size, aa_embedding.shape[1], aa_embedding.shape[1]], device=device)
+            for i in range(batch_size):
+                attention_mask[i, :prot_lengths[i], :prot_lengths[i]].fill_(1)
+            aa_embedding = aa_embedding + self.laneGCN_A2A(aa_embedding, attention_mask)
+
+        # => (N, max(num_aa)+max(num_nc), h/2)
+        # list_complex_embedding = []
+        # for i in range(batch_size):
+        #     # => (max(num_aa)+max(num_nc), h/2)
+        #     temp = torch.cat([aa_embedding[i,:prot_lengths[i]], nc_embedding[i,:nc_lengths[i]]], dim=0)
+        #     list_complex_embedding.append(temp)
+
+        # return list_complex_embedding # List[Tensor=(max(num_aa)+max(num_nc), h/2)]
+        return aa_embedding, nc_embedding
+
+    def forward_encode_sub_graph(
+            self, 
+            atom_attributes, # List[np.ndarray]
+            aa_lengths, # List[List[Int]]
+            # atom_indices, # not used
+            nc_embedding,
+            nc_lengths, # [List[Int]]
+            # matrix: List[np.ndarray], 
+            # polyline_spans: List[List[slice]],
+            device, batch_size) -> Tuple[List[Tensor], List[Tensor]]:
+        """
+        """
+        prot_states_batch = []
+        input_list = []
+        for i in range(batch_size):
+            tensor = torch.tensor(atom_attributes[i], device=device) # (num_aa, MAX_NUM_ATOMS)
+            input_list.append(tensor)
+        
+        for i in range(batch_size):
+            a = self.atom_level_sub_graph(input_list[i], aa_lengths[i]) # (num_aa, h/2)
+            prot_states_batch.append(a)
+        
+        for i in range(batch_size):
+            prot_feats = prot_states_batch[i] # (num_aa, h/2)
+            rdna_feats = nc_embedding[i, :nc_lengths[i]] # (num_nc, h/2)
+
             rdna_feats = rdna_feats + self.laneGCN_A2L(
                 rdna_feats.unsqueeze(0), prot_feats.unsqueeze(0)).squeeze(0)
             rdna_feats = rdna_feats + self.laneGCN_L2L(
@@ -395,10 +366,10 @@ class GraphNet(nn.Module):
                 prot_feats = prot_feats + self.laneGCN_A2A(
                     prot_feats.unsqueeze(0)).squeeze(0)
 
-            prot_states_batch[i] = torch.cat([prot_feats, rdna_feats]) # [aa+nc, h/2]
+            prot_states_batch[i] = torch.cat([prot_feats, rdna_feats]) # [num_aa+num_nc, h/2]
             # prot_states_batch[i] = prot_feats # [aa, h/2]
 
-        return prot_states_batch, rdna_states_batch
+        return prot_states_batch
     
     def aa_attribute_embeding(
             self,
@@ -434,8 +405,8 @@ class GraphNet(nn.Module):
         else:
             final_embedding = aa_embedding
 
-        return utils.de_merge_tensors(final_embedding, lengths), lengths
-        # return aa_embedding, lengths
+        # return utils.de_merge_tensors(final_embedding, lengths), lengths
+        return final_embedding, lengths
 
     def na_attribute_embeding(
             self,
@@ -485,8 +456,8 @@ class GraphNet(nn.Module):
 
         na_embedding = F.relu(na_embedding)
 
-        return utils.de_merge_tensors(na_embedding, lengths), lengths
-        # return na_embedding, lengths
+        # return utils.de_merge_tensors(na_embedding, lengths), lengths
+        return na_embedding, lengths
 
     # @profile
     def forward(self, mapping: List[Dict], device):
@@ -499,16 +470,18 @@ class GraphNet(nn.Module):
         aa_attributes = utils.get_from_mapping(mapping, 'aa_attributes') # List[np.ndarray=(n_aa, 20)]
 
         aa_pwm = None
-        if self.pwm_type == 'hmm':
-            aa_pwm = utils.get_from_mapping(mapping, 'aa_hmm_pwm') # List[np.ndarray=(n_aa, 30)]
-        elif self.pwm_type == 'pssm':
-            aa_pwm = utils.get_from_mapping(mapping, 'aa_pssm_pwm') # List[np.ndarray=(n_aa, 30)]
-        elif self.pwm_type == 'psfm':
-            aa_pwm = utils.get_from_mapping(mapping, 'aa_psfm_pwm') # List[np.ndarray=(n_aa, 30)]
-        else:
-            NotImplemented
+        # if self.pwm_type == 'hmm':
+        #     aa_pwm = utils.get_from_mapping(mapping, 'aa_hmm_pwm') # List[np.ndarray=(n_aa, 30)]
+        # elif self.pwm_type == 'pssm':
+        #     aa_pwm = utils.get_from_mapping(mapping, 'aa_pssm_pwm') # List[np.ndarray=(n_aa, 30)]
+        # elif self.pwm_type == 'psfm':
+        #     aa_pwm = utils.get_from_mapping(mapping, 'aa_psfm_pwm') # List[np.ndarray=(n_aa, 30)]
+        # else:
+        #     NotImplemented
+        if is_pwm_type_valid(self.pwm_type):
+            aa_pwm = utils.get_from_mapping(mapping, 'aa_pwm')
 
-        aa_indices = utils.get_from_mapping(mapping, 'aa_indices') # not used
+        # aa_indices = utils.get_from_mapping(mapping, 'aa_indices') # not used
         atom_attributes = utils.get_from_mapping(mapping, 'atom_attributes') # List[List[np.ndarray=(n_atoms,)]]
         aa_lengths = utils.get_from_mapping(mapping, 'aa_lengths') # List[List[int]]
         # atom_indices = utils.get_from_mapping(mapping, 'atom_indices')
@@ -522,61 +495,89 @@ class GraphNet(nn.Module):
 
         batch_size = len(aa_attributes)
 
-        # compute embedding feature for amino acid sequence
-        # list[Tensor=(n_aa, h/2)]
-        aa_embedding, _ = self.aa_attribute_embeding(aa_attributes, aa_pwm, device, batch_size)
+        # compute embedding feature for amino acid sequence, (N, max(num_aa), h/2)
+        aa_embedding, prot_lengths = self.aa_attribute_embeding(aa_attributes, aa_pwm, device, batch_size)
+        # compute embedding feature for DNA/RNA, (N, max(num_nc), h/2)
+        na_embedding, nc_lengths = self.na_attribute_embeding(na_attributes, na_other_attributes, device, batch_size)
         
-        # compute embedding feature for DNA/RNA
-        # list[Tensor=(n_nc, h/2)]
-        na_embedding, _ = self.na_attribute_embeding(na_attributes, na_other_attributes, device, batch_size)
-        
-        # [bs, max(n_aa+n_nc), h/2]
-        element_states_batch, lane_states_batch =\
-            self.forward_encode_sub_graph(mapping, atom_attributes, aa_lengths, na_embedding, device,  batch_size)
-        
+        ########################################################
 
-        # [bs, max(n_aa+n_nc), h/2], inputs_lengths: list of actual len_aa+len_nc of each batch
-        inputs, inputs_lengths = utils.merge_tensors(element_states_batch, device=device)
+        complex_embedding = self.forward_encode_sub_graph(
+            atom_attributes, aa_lengths, na_embedding, nc_lengths, device, batch_size)
+
+        complex_embedding, complex_lengths = utils.merge_tensors(complex_embedding, device=device)
+        
+        max_seq_num = max(complex_lengths)
+        attention_mask = torch.zeros([batch_size, max_seq_num, max_seq_num], device=device)
+        for i, length in enumerate(complex_lengths):
+            attention_mask[i, :length, :length].fill_(1)
+
+        # complex_embedding
+        aa_embedding = utils.de_merge_tensors(aa_embedding, prot_lengths)
+        na_embedding = utils.de_merge_tensors(na_embedding, nc_lengths)
+        complex_embedding_from_seq = []
+        for f1, f2 in zip(aa_embedding, na_embedding):
+            f3 = torch.cat([f1, f2], dim=0)
+            complex_embedding_from_seq.append(f3)
+        complex_embedding_from_seq, _ = utils.merge_tensors(complex_embedding_from_seq, device=device)
+        complex_embedding = torch.cat([complex_embedding, complex_embedding_from_seq], dim=-1)
+        ########################################################
+        '''
+        ### do padding for sub graph (but very slow)
+
+        # [bs, max(n_aa+n_nc), h/2]
+        aa_embedding_from_atom, nc_embedding_from_atom = self.forward_encode_sub_graph(
+            atom_attributes, aa_lengths, na_embedding, nc_lengths, device, batch_size)
+
+        complex_lengths = [l1+l2 for l1, l2 in zip(prot_lengths, nc_lengths)]
+
+        # [bs, max(n_aa+n_nc), h/2], complex_lengths: list of actual len_aa+len_nc of each batch
+        # embedding_from_atom, complex_lengths = utils.merge_tensors(embedding_from_atom, device=device)
 
         # create mask
-        max_seq_num = max(inputs_lengths)
-        # (bs, max_n_aa, max_n_aa)
-        attention_mask = torch.zeros([batch_size, max_seq_num, max_seq_num], device=device)
-        for i, length in enumerate(inputs_lengths):
-            attention_mask[i][:length][:length].fill_(1)
+        max_seq_num = max(complex_lengths)
+        attention_mask = torch.zeros([batch_size, max_seq_num, max_seq_num], device=device) # (bs, max_n_aa, max_n_aa)
+        for i, length in enumerate(complex_lengths):
+            attention_mask[i, :length, :length].fill_(1)
         
-        # TODO: try different method to aggregate features rather than concat
-        complex_embeddings = []
-        seq_len_per_complex = []
-        for i in range(batch_size):
-            seq_len_per_complex.append((aa_embedding[i].shape[0], na_embedding[i].shape[0]))
-            complex_emb = torch.cat([aa_embedding[i], na_embedding[i]]) # (n_aa+n_nc, h/2)
-            complex_embeddings.append(complex_emb)
-        # [bs, max(n_aa+n_nc), h/2], inputs_lengths: list of actual len_aa+len_nc of each batch
-        complex_embeddings, complex_lengths = utils.merge_tensors(complex_embeddings, device=device)
+        assert(aa_embedding_from_atom.shape[1] == aa_embedding.shape[1])
+        assert(nc_embedding_from_atom.shape[1] == na_embedding.shape[1])
+        aa_embedding = torch.cat([aa_embedding_from_atom, aa_embedding], dim=-1) # => (N, max(num_aa), h)
+        na_embedding = torch.cat([nc_embedding_from_atom, na_embedding], dim=-1)
 
+        complex_embedding = []
+        for i in range(batch_size):
+            temp = torch.cat([aa_embedding[i, :prot_lengths[i]], 
+                              na_embedding[i, :nc_lengths[i]]], dim=0) # (n_aa+n_nc, h)
+            complex_embedding.append(temp) # (n_aa+n_nc, h)
+        # complex_embedding = torch.cat(complex_embedding, dim=0) # (N, n_aa+n_nc, h)
+        complex_embedding, _ = utils.merge_tensors(complex_embedding, device=device) # (N, n_aa+n_nc, h)
+        
+        '''
+        ########################################################
+
+
+        # [bs, max(n_aa+n_nc), h/2], inputs_lengths: list of actual len_aa+len_nc of each batch
+        # embedding_from_seq, _ = utils.merge_tensors(embedding_from_seq, device=device)
         # [bs, max(n_aa+n_nc), h/2], [bs, max(n_aa+n_nc), h/2]=> [bs, max(n_aa+n_nc), h]
-        inputs = torch.cat([complex_embeddings, inputs], dim=-1) 
+        # inputs = torch.cat([embedding_from_seq, embedding_from_atom], dim=-1) 
 
         # global_graph: GlobalGraphRes [bs, max(n_aa), h]
-        hidden_states = self.global_graph(inputs, attention_mask, mapping)
+        hidden_states = self.global_graph(complex_embedding, attention_mask, mapping)
         
         # to list[complex_feat], list number = batch size
         hidden_state_per_complex = utils.de_merge_tensors(hidden_states, complex_lengths)
         combined_feat_per_complex = []
         for i in range(batch_size):
-            len_aa, len_nc = seq_len_per_complex[i]
-            assert(complex_lengths[i] == len_aa + len_nc)
+            len_aa = prot_lengths[i]
             seq_feat_aa = hidden_state_per_complex[i][:len_aa] # (n_aa, h)
             seq_feat_nc = hidden_state_per_complex[i][len_aa:] # (n_nc, h)
             unit_feat_aa = torch.max(seq_feat_aa, dim=0)[0] # (h,)
             unit_feat_nc = torch.max(seq_feat_nc, dim=0)[0] # (h,)
             combined_feat_per_complex.append( torch.cat([unit_feat_aa, unit_feat_nc]).unsqueeze(0) ) # (1, h*2)
-        hidden_states = torch.cat(combined_feat_per_complex) # => (bs, h*2)
+        hidden_states = torch.cat(combined_feat_per_complex, dim=0) # => (bs, h*2)
 
-        # [bs, max(n_aa), h] => [bs, h]
-        # hidden_states = torch.max(hidden_states, dim=1)[0]
-
+        # hidden_states = torch.max(hidden_states, dim=1)[0] # [bs, max(n_aa), h] => [bs, h]
         # TODO: fine tune the structure of predicting score
         
         hidden_states = self.reg_head(hidden_states) # (bs, h*2)=>(bs, h)
@@ -632,14 +633,14 @@ class PostProcess(nn.Module):
     
 
 
-    def display(self, metrics, epoch, step=None, lr=None):
+    def display(self, metrics, epoch, step=None, lr=None, time=None):
         if lr is not None:
             print("Epoch = {}, Step = {}".format(epoch, step))
         else:
             print("************************* Validation *************************")
         loss = metrics["reg_loss"] / (metrics["num_reg"] + 1e-10)
         if lr is not None:
-            print("loss = %2.4f" % (loss))
+            print("loss = %2.4f, time = %2.4f" % (loss, time))
         else:
             rvalue, pvalue, rrmse = 0, 0, 0
             if "preds" in metrics and "gts" in metrics:

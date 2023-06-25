@@ -4,6 +4,7 @@ import pandas as pd
 import argparse
 import tqdm
 from tqdm import tqdm
+import time
 
 from preprocessing import PDBio
 from preprocessing import pipelines
@@ -17,7 +18,7 @@ from torch.utils.data import RandomSampler, SequentialSampler
 from torch.utils.data.distributed import DistributedSampler
 from torch.nn.parallel import DistributedDataParallel
 
-from comm import get_world_size, get_rank, is_main_process, synchronize, all_gather, reduce_dict
+from utilities.comm import get_world_size, get_rank, is_main_process, synchronize, all_gather, reduce_dict
 import utils
 from dataset.dataset_pri import PriDataset, PriDatasetExt
 
@@ -168,6 +169,7 @@ def train_one_epoch(model, train_dataloader, val_dataloader,
   save_iters = 1000
   save_dir = args.output_dir
   metrics = dict()
+  
   for step, batch in enumerate(train_dataloader):
     # print("step {}, batch.type={}".format( step, type(batch) ))
     # if (isinstance(batch, list)):
@@ -175,6 +177,8 @@ def train_one_epoch(model, train_dataloader, val_dataloader,
     #   print("batch size={}".format( len(batch) ))
 
     # break when meeting max iter
+
+    start_time = time.time()
 
     loss, pred, loss_output = model(batch, device)
     post_out = post_process(loss_output)
@@ -188,7 +192,9 @@ def train_one_epoch(model, train_dataloader, val_dataloader,
 
     if is_main_process and step % 10 == 0:
       # print("epoch={} step={} loss={}".format(i_epoch, step, loss.item()))
-      post_process.display(metrics, i_epoch, step, args.learning_rate)
+      end_time = time.time()
+      post_process.display(metrics, i_epoch, step, args.learning_rate, end_time - start_time)
+      
     # if is_main_process and step % save_iters == 0:
     #   save_ckpt(model, optimizer, save_dir, i_epoch, step)
 

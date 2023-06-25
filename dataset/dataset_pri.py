@@ -241,14 +241,19 @@ def pri_get_instance(input_complex, args, other_inputs):
   #     assert( temp.shape = (len(temp_input_nucleotide), 9) )
   #     nc_feat_tensor[:, dna_cols:] = temp
   ############
-
+  if args.pwm_type == 'hmm':
+    aa_pwm = hmm_np_array # (num_aa, 30)
+  elif args.pwm_type == 'pssm':
+    aa_pwm = pssm_np_array # (num_aa, 20)
+  elif args.pwm_type == 'psfm':
+    aa_pwm = psfm_np_array # (num_aa, 20)
+  else:
+    aa_pwm = None
 
   mapping.update(dict(
     aa_attributes = aa_attributes, # (num_aa, 20) ? + 30
-    aa_hmm_pwm = hmm_np_array, # (num_aa, 30)
-    aa_pssm_pwm = pssm_np_array, # (num_aa, 20)
-    aa_psfm_pwm = psfm_np_array, # (num_aa, 20)
-    aa_indices = aa_indices, # (num_aa,)
+    aa_pwm = aa_pwm,
+    # aa_indices = aa_indices, # (num_aa,)
     #
     # atom_attributes = atom_attributes, # list[np.ndarray=(num_atoms,1)]
     atom_attributes = feature_by_atom, # (num_aa, MAX_NUM_ATOMS)
@@ -565,7 +570,7 @@ def worker_init_fn(pid):
 
 
 from torch.utils.data.distributed import DistributedSampler
-from comm import get_world_size, get_rank, is_main_process, synchronize, all_gather, reduce_dict
+from utilities.comm import get_world_size, get_rank, is_main_process, synchronize, all_gather, reduce_dict
 
 
 if __name__ == '__main__':
