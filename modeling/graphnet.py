@@ -16,6 +16,9 @@ from preprocessing.protein_chemistry import list_atoms
 from scipy.stats import linregress
 from sklearn import metrics as sklearn_metrics
 
+# post_preprocessor
+import os
+
 def is_pwm_type_valid(pwm_type):
     return pwm_type in ['hmm', 'pssm', 'psfm']
 
@@ -224,20 +227,19 @@ class GraphNet(nn.Module):
             NotImplemented
 
         self.use_chemistry = args.use_chemistry
+
         self.use_conv = False
-        # w=seq,h=4 ==> output: w'=seq-2(seq-3+1), h'=1(4-4+1)
-        # h-kh+1:, w-kw+1:
-        if self.use_conv:
-            self.na_conv2d = nn.Conv2d(in_channels=1, out_channels=hidden_size // 2, kernel_size=(3,4))
-        
         self.use_kmers = True
         if self.use_kmers:
             out_channels = hidden_size // 2
             if self.use_chemistry:
                 out_channels = hidden_size // 4
             self.kmers_net = KMersNet(base_channel=8, out_channels=out_channels)
-
-        if not self.use_kmers and not self.use_conv:
+        elif self.use_conv: ## TODO: fix as current not allowed
+            # w=seq,h=4 ==> output: w'=seq-2(seq-3+1), h'=1(4-4+1)
+            # h-kh+1:, w-kw+1:
+            self.na_conv2d = nn.Conv2d(in_channels=1, out_channels=hidden_size // 2, kernel_size=(3,4))
+        else: ## TODO: fix as current not allowed
             self.na_embeding_layer = nn.Linear(in_features=4, out_features=hidden_size // 2, bias=False)
             self.na_embeding_layer = TimeDistributed(self.na_embeding_layer)
 
@@ -333,11 +335,8 @@ class GraphNet(nn.Module):
             self, 
             atom_attributes, # List[np.ndarray]
             aa_lengths, # List[List[Int]]
-            # atom_indices, # not used
             nc_embedding,
             nc_lengths, # [List[Int]]
-            # matrix: List[np.ndarray], 
-            # polyline_spans: List[List[slice]],
             device, batch_size) -> Tuple[List[Tensor], List[Tensor]]:
         """
         """
@@ -375,21 +374,20 @@ class GraphNet(nn.Module):
             self,
             aa_attributes : List[np.ndarray], 
             aa_pwm : List[np.ndarray],
-            # aa_indices,
-            device, batch_size) -> Tuple[List[Tensor], List[int]]:
+            device, batch_size) -> Tuple[Tensor, List[int]]:
         """
         compute embedding of amino acid
         inputs:
             aa_attributes: List[Tensor=(n_aa, 20)]
         outputs:
-            List[Tensor=(n_aa, h/2)]
-            
+            Tensor=(N, max(num_aa), h/2)
+            List[int], each prot length
         """
-        input_list = []
+        prot_list = []
         for i in range(batch_size):
-            tensor = torch.tensor(aa_attributes[i], device=device)
-            input_list.append(tensor)
-        aa_embedding, lengths = utils.merge_tensors(input_list, device=device) # [bs, max_n_aa, 20]
+            prot = torch.tensor(aa_attributes[i], device=device)
+            prot_list.append(prot)
+        aa_embedding, lengths = utils.merge_tensors(prot_list, device=device) # [bs, max_n_aa, 20]
         aa_embedding = self.aa_embeding_layer(aa_embedding) # [bs, max_n_aa, 20]->[bs, max_n_aa, h/4]
         aa_embedding = F.relu(aa_embedding)
 
@@ -412,15 +410,13 @@ class GraphNet(nn.Module):
             self,
             na_attributes : List[np.ndarray], 
             na_other_attributes : List[np.ndarray], 
-            # aa_indices,
-            device, batch_size) -> Tuple[List[Tensor], List[int]]:
+            device, batch_size) -> Tuple[Tensor, List[int]]:
         """
         compute embedding of Nucleic Acids
         inputs:
             na_attributes: List[Tensor=(n_na, 4)]
         outputs:
-            List[Tensor=(n_na, h/2)]
-            
+            List[Tensor=(n_na, h/2)] 
         """
         input_list = []
         for i in range(batch_size):
@@ -459,34 +455,19 @@ class GraphNet(nn.Module):
         # return utils.de_merge_tensors(na_embedding, lengths), lengths
         return na_embedding, lengths
 
-    # @profile
     def forward(self, mapping: List[Dict], device):
-
-        import time
-        global starttime
-        starttime = time.time()
-
         # amino acid feature, tensor shape = (number_of_amino_acid, 20)
         aa_attributes = utils.get_from_mapping(mapping, 'aa_attributes') # List[np.ndarray=(n_aa, 20)]
-
         aa_pwm = None
-        # if self.pwm_type == 'hmm':
-        #     aa_pwm = utils.get_from_mapping(mapping, 'aa_hmm_pwm') # List[np.ndarray=(n_aa, 30)]
-        # elif self.pwm_type == 'pssm':
-        #     aa_pwm = utils.get_from_mapping(mapping, 'aa_pssm_pwm') # List[np.ndarray=(n_aa, 30)]
-        # elif self.pwm_type == 'psfm':
-        #     aa_pwm = utils.get_from_mapping(mapping, 'aa_psfm_pwm') # List[np.ndarray=(n_aa, 30)]
-        # else:
-        #     NotImplemented
         if is_pwm_type_valid(self.pwm_type):
             aa_pwm = utils.get_from_mapping(mapping, 'aa_pwm')
 
-        # aa_indices = utils.get_from_mapping(mapping, 'aa_indices') # not used
-        atom_attributes = utils.get_from_mapping(mapping, 'atom_attributes') # List[List[np.ndarray=(n_atoms,)]]
+        atom_attributes = utils.get_from_mapping(mapping, 'atom_attributes') # List[np.ndarray=(num_aa, MAX_NUM_ATOMS)]
         aa_lengths = utils.get_from_mapping(mapping, 'aa_lengths') # List[List[int]]
+        # aa_indices = utils.get_from_mapping(mapping, 'aa_indices') # not used
         # atom_indices = utils.get_from_mapping(mapping, 'atom_indices')
         # DNA/RNA feature, tensor shape = (number_of_DNA/RNA, 4)
-        na_attributes = utils.get_from_mapping(mapping, 'nucleotide_attributes') # List[np.ndarray=(n_nc, 4)]
+        na_attributes = utils.get_from_mapping(mapping, 'nucleotide_attributes') # List[np.ndarray=(num_nc, 4)]
 
         if self.use_chemistry:
             na_other_attributes = utils.get_from_mapping(mapping, 'nucleotide_other_attributes') # List[np.ndarray=(n_nc, 10)]
@@ -592,8 +573,9 @@ class GraphNet(nn.Module):
 
 
 class PostProcess(nn.Module):
-    def __init__(self):
+    def __init__(self, output_dir):
         super(PostProcess, self).__init__()
+        self.output_dir = output_dir
 
     def forward(self, out):
         post_out = dict()
@@ -650,7 +632,13 @@ class PostProcess(nn.Module):
                 # rvalue 表示 皮尔森系数，越接近1越好，一般要到0.75以上，预测合格，pvalue表示检验的p值，需要小于0.05，严格一点需要小于0.01
                 rrmse = sklearn_metrics.mean_squared_error(gts, preds)
                 # rrmse 表示实验值和预测值之间的均方根误差，值越接近于0越好
-                np.savez("pred_output_{}".format(epoch), preds=preds, gts=gts)
+                save_dir = os.path.join(self.output_dir, "prediction")
+                if not os.path.exists(save_dir):
+                    print("Directory {} doesn't exist, create a new.".format(save_dir))
+                    os.makedirs(save_dir)
+                    
+                output_file = os.path.join(save_dir, "pred_output_{}".format(epoch))
+                np.savez(output_file, preds=preds, gts=gts)
 
 
             print("validation loss = %2.4f, rvalue = %2.4f, pvalue = %2.8f, rrmse = %2.4f" % (loss, rvalue, pvalue, rrmse))

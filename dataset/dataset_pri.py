@@ -49,6 +49,7 @@ def binarize_categorical(matrix : np.ndarray,
   out[np.arange(L)[subset],matrix[subset]] = 1
   return out
 
+
 def process_sequence_without_coordinates(chain):
   chain_by_int = [aa_to_index[it] # list_aa.index(it) 
     if it in list_aa else aa_to_index[it.upper()] # handle lower case of aa
@@ -57,72 +58,9 @@ def process_sequence_without_coordinates(chain):
   return np.array(chain_by_int)
 
 
-def pri_get_instance(input_complex, args, other_inputs):
-  """
-  Process one input.
+def get_pwm_feature(pwm_dir, input_complex):
 
-  Arguments:
-  - input_complex: one complex containing a amino acid sequence and nucleotide sequence
-  
-  Returns:
-  map of input features and label.
-  """
-  mapping = {}
-
-  input_protein = input_complex["protein_sequence"] # string
-  input_nucleotide = input_complex["nucleotide_sequence"] # string
-  if 'zscore' in input_complex:
-    label_dG   = input_complex['zscore']
-  else:
-    label_dG   = input_complex['dG']
-
-  protein_sequences = process_sequence_without_coordinates(input_protein)
-  num_aa = len(protein_sequences)
-
-  # TODO: use bool instead.
-  aa_attributes = binarize_categorical(
-    protein_sequences, 20).astype(np.float32) # (seq_aa, 20)
-  aa_indices = np.array([i for i in range(num_aa)])
-
-  atom_attributes = []
-  atom_mass_attributes = []
-  atom_indices = []
-  aa_lengths = []
-  for i, it in enumerate(protein_sequences): # per aa
-    aa = list_aa[it] # get aa string
-    aa_atoms = list(dictionary_covalent_bonds[aa].keys())
-    num_atoms = len(aa_atoms)
-    atom_type = np.array([list_atoms.index(x) for x in aa_atoms])
-    atom_mass = np.array([atom_type_mass[x] for x in atom_type])
-    
-    # atom_type = atom_type.reshape(-1,1) # (num_atoms, 1)
-    # atom_mass = atom_mass.reshape(-1,1) # (num_atoms, 1)
-    
-    atom_type = remove_nan(atom_type)
-    atom_mass = remove_nan(atom_mass)
-    
-    atom_attributes.append(atom_type)
-    atom_mass_attributes.append(atom_mass)
-
-    # indicates each atom belong to the index of aa
-    atom_indices.append(np.ones((num_atoms,), dtype=np.int32) * i)
-    aa_lengths.append(num_atoms)
-
-  feature_by_atom = np.zeros((num_aa, MAX_NUM_ATOMS_IN_AA), dtype=np.float32)
-  for i in range(num_aa):
-    feature_by_atom[i, :aa_lengths[i]] = atom_attributes[i]
-
-
-  atom_indices = np.concatenate(atom_indices, axis=0)
-  atom_indices = remove_nan(atom_indices)
-  aa_attributes = remove_nan(aa_attributes)
-  
-
-  ####################################
-  # PWM
   protein_index = input_complex['protein_index']
-
-  pwm_dir = 'data/pwm_data/pwm'
 
   data_file = os.path.join(pwm_dir, protein_index, "pssm_hmm.txt")
   pwm_df = pd.read_csv(data_file, sep='\t')
@@ -143,10 +81,111 @@ def pri_get_instance(input_complex, args, other_inputs):
   iend = 1+num_hmm_cols+num_pssm_cols+num_psfm_cols
   psfm_np_array = pwm_df.iloc[:, ibeg:iend].values
 
-  # aa_attributes = np.concatenate([aa_attributes, hmm_np_array], axis=-1) # (num_aa, 20+30)
+  return hmm_np_array, pssm_np_array, psfm_np_array
 
-  ####################################
-  # process nucleotide data. nucleotide_to_index = {'A':0, 'C':1, 'G':2, 'T':3, 'U':3}
+
+def get_nc_chemistry(na_jobid, input_nucleotide, fdir):
+  nc_whole_length = len(input_nucleotide.replace('|', ''))
+  list_temp_arr = []
+  # might have one or two na_jobids
+  sub_paths = na_jobid.split(',')
+  for sub_path in sub_paths:
+    f = None
+    if 'DNA' in sub_path:
+      f = os.path.join(fdir, sub_path, '{}_EIIP.txt'.format(sub_path))
+    elif 'RNA' in sub_path: 
+      f = os.path.join(fdir, sub_path, '{}_spotrna1d.txt'.format(sub_path))
+    if os.path.exists(f):
+      temp_df = pd.read_csv(f, sep='\t')
+      temp_arr = temp_df.values[:,1:]
+      if len(temp_arr.shape) == 1:
+          temp_arr = temp_arr.reshape(len(temp_df), -1)
+      list_temp_arr.append(temp_arr)
+  # 
+  final_arr = np.concatenate(list_temp_arr, axis=0)
+  # create other features for DNA/RNA
+  dna_cols = 1
+  rna_cols = 9
+  nc_feat_tensor = np.zeros((nc_whole_length, dna_cols + rna_cols), dtype=np.float32)
+  if final_arr.shape[1] == 1:
+    nc_feat_tensor[:, :dna_cols] = final_arr
+  else:
+    nc_feat_tensor[:, dna_cols:] = final_arr
+  return nc_feat_tensor
+
+
+def pri_get_instance(input_complex, args, other_inputs):
+  """
+  Process one input.
+
+  Arguments:
+  - input_complex: one complex containing a amino acid sequence and nucleotide sequence
+
+  Returns:
+  map of input features and label.
+  """
+  input_protein = input_complex["protein_sequence"] # string
+  input_nucleotide = input_complex["nucleotide_sequence"] # string
+  label_dG = input_complex['dG'] if 'dG' in input_complex else input_complex['zscore']
+
+  protein_sequences = process_sequence_without_coordinates(input_protein)
+  num_aa = len(protein_sequences)
+
+  # TODO: use bool instead.
+  aa_attributes = binarize_categorical(
+    protein_sequences, 20).astype(np.float32) # (seq_aa, 20)
+  aa_indices = np.array([i for i in range(num_aa)])
+
+  atom_attributes = []
+  atom_mass_attributes = []
+  atom_indices = []
+  aa_lengths = []
+  for i, it in enumerate(protein_sequences): # per aa
+    aa = list_aa[it] # get aa string
+    aa_atoms = list(dictionary_covalent_bonds[aa].keys())
+    num_atoms = len(aa_atoms)
+    atom_type = np.array([list_atoms.index(x) for x in aa_atoms])
+    atom_mass = np.array([atom_type_mass[x] for x in atom_type])
+    # atom_type = atom_type.reshape(-1,1) # (num_atoms, 1)
+    # atom_mass = atom_mass.reshape(-1,1) # (num_atoms, 1)
+    atom_type = remove_nan(atom_type)
+    atom_mass = remove_nan(atom_mass)
+    atom_attributes.append(atom_type)
+    atom_mass_attributes.append(atom_mass)
+    # indicates each atom belong to the index of aa
+    atom_indices.append(np.ones((num_atoms,), dtype=np.int32) * i)
+    aa_lengths.append(num_atoms)
+
+  feature_by_atom = np.zeros((num_aa, MAX_NUM_ATOMS_IN_AA), dtype=np.float32)
+  for i in range(num_aa):
+    feature_by_atom[i, :aa_lengths[i]] = atom_attributes[i]
+
+  atom_indices = np.concatenate(atom_indices, axis=0)
+  atom_indices = remove_nan(atom_indices)
+  aa_attributes = remove_nan(aa_attributes)
+  
+
+  ################# get pwm features #################
+  pwm_dir = 'data/pwm_data/pwm' # TODO: move to param
+  hmm_feature = None
+  pssm_feature = None
+  psfm_feature = None
+  if args.pwm_type in ['hmm', 'pssm', 'psfm']:
+    hmm_feature, pssm_feature, psfm_feature = \
+                get_pwm_feature(pwm_dir, input_complex)
+  
+  if args.pwm_type == 'hmm':
+    aa_pwm_feature = hmm_feature # (num_aa, 30)
+  elif args.pwm_type == 'pssm':
+    aa_pwm_feature = pssm_feature # (num_aa, 20)
+  elif args.pwm_type == 'psfm':
+    aa_pwm_feature = psfm_feature # (num_aa, 20)
+  else:
+    aa_pwm_feature = None
+
+
+  ################# get nucleotide features #################
+  # nucleotide_to_index = {'A':0, 'C':1, 'G':2, 'T':3, 'U':3}
   nucleotide_sequences = None
   if '|' in input_nucleotide:
     nucleotide_sequences = input_nucleotide.split('|')
@@ -167,101 +206,23 @@ def pri_get_instance(input_complex, args, other_inputs):
   nucleotide_attributes = np.concatenate(nucleotide_attributes)
 
   ############ use chemistry feature as input ############
-  nc_feat_tensor = None
-  if args.use_chemistry and True:
-    na_jobid = input_complex['na_jobid']
-    
-    # dna_chemi_tensor = None
-    # rna_angul_tensor = None
-    # nc_seq_size = 0
-
-    temp_input_nucleotide = input_nucleotide.replace('|', '')
-    nc_whole_length = len(temp_input_nucleotide)
-
-    list_temp_arr = []
-    fdir = 'data/nc_data'
-    list_sub_path = na_jobid.split(',')
-    for sub_path in list_sub_path:
-      f = None
-      if 'DNA' in sub_path:
-        f = os.path.join(fdir, sub_path, '{}_EIIP.txt'.format(sub_path))
-      elif 'RNA' in sub_path: 
-        f = os.path.join(fdir, sub_path, '{}_spotrna1d.txt'.format(sub_path))
-      if os.path.exists(f):
-        temp_df = pd.read_csv(f, sep='\t')
-        temp_arr = temp_df.values[:,1:]
-        if len(temp_arr.shape) == 1:
-            temp_arr = temp_arr.reshape(len(temp_df), -1)
-        list_temp_arr.append(temp_arr)
-    # 
-    final_arr = np.concatenate(list_temp_arr, axis=0)
-
-    # # TODO: set fdir with parameter
-    # fdir = 'data/nc_data'
-    # if 'DNA' in input_complex['nucleic_acid_type_new']:
-    #   f = os.path.join(fdir, na_jobid, '{}_EIIP.txt'.format(na_jobid))
-    #   if os.path.exists(f):
-    #     dna_chemi_df = pd.read_csv(f, sep='\t')
-    #     dna_chemi_tensor = dna_chemi_df.iloc[:,:].values[:,1].reshape(-1,1) # (num_nc,)
-    #     nc_seq_size = dna_chemi_tensor.shape[0] # num_nc
-    #     # temp_input_nucleotide = input_nucleotide.replace('|', '')
-    #     assert(nc_seq_size == nc_whole_length)
-    # elif 'RNA' in input_complex['nucleic_acid_type_new']:
-    #   f = os.path.join(fdir, na_jobid, '{}_spotrna1d.txt'.format(na_jobid))
-    #   if os.path.exists(f):
-    #     rna_angul_df = pd.read_csv(f, sep='\t')
-    #     rna_angul_tensor = rna_angul_df.iloc[:,:].values[:,1:] # (num_nc, 9)
-    #     nc_seq_size = rna_angul_tensor.shape[0]
-    #     assert(rna_angul_tensor.shape[1] == 9)
-    #     # temp_input_nucleotide = input_nucleotide.replace('|', '')
-    #     assert(nc_seq_size == nc_whole_length)
-
-
-    # create other features for DNA/RNA
-    dna_cols = 1
-    rna_cols = 9
-    nc_feat_tensor = np.zeros((nc_whole_length, dna_cols + rna_cols), dtype=np.float32)
-    if final_arr.shape[1] == 1:
-      nc_feat_tensor[:, :dna_cols] = final_arr
-    else:
-      nc_feat_tensor[:, dna_cols:] = final_arr
+  nc_chemistry_features = None
+  if args.use_chemistry:
+    chemistry_dir = 'data/nc_data' # TODO: move to param
+    nc_chemistry_features = get_nc_chemistry(input_complex['na_jobid'], 
+      input_complex["nucleotide_sequence"],  chemistry_dir)
   
-  ############
-  # if args.use_chemistry and False:
-  #   temp_input_nucleotide = input_nucleotide.replace('|', '')
-  #   dna_cols = 1
-  #   rna_cols = 9
-  #   nc_feat_tensor = np.zeros((len(temp_input_nucleotide), dna_cols + rna_cols), dtype=np.float)
-
-  #   temp = other_inputs['other_feat']
-  #   if 'DNA' in input_complex['na_jobid']:
-  #     assert( temp.shape = (len(temp_input_nucleotide), 1) )
-  #     nc_feat_tensor[:, :dna_cols] = temp
-  #   elif 'RNA' in input_complex['na_jobid']:
-  #     assert( temp.shape = (len(temp_input_nucleotide), 9) )
-  #     nc_feat_tensor[:, dna_cols:] = temp
-  ############
-  if args.pwm_type == 'hmm':
-    aa_pwm = hmm_np_array # (num_aa, 30)
-  elif args.pwm_type == 'pssm':
-    aa_pwm = pssm_np_array # (num_aa, 20)
-  elif args.pwm_type == 'psfm':
-    aa_pwm = psfm_np_array # (num_aa, 20)
-  else:
-    aa_pwm = None
-
+  mapping = {}
   mapping.update(dict(
     aa_attributes = aa_attributes, # (num_aa, 20) ? + 30
-    aa_pwm = aa_pwm,
+    aa_pwm = aa_pwm_feature,
     # aa_indices = aa_indices, # (num_aa,)
-    #
     # atom_attributes = atom_attributes, # list[np.ndarray=(num_atoms,1)]
     atom_attributes = feature_by_atom, # (num_aa, MAX_NUM_ATOMS)
     aa_lengths = aa_lengths, # per aa length
-    atom_indices = atom_indices, # (all_atoms_in_aa, )
-    #
+    # atom_indices = atom_indices, # (all_atoms_in_aa, )
     nucleotide_attributes = nucleotide_attributes, # (num_nc', 4) num_nc' = sum(all chain)
-    nucleotide_other_attributes = nc_feat_tensor, # (num_nc', 10) 
+    nucleotide_other_attributes = nc_chemistry_features, # (num_nc', 10) 
     label = label_dG, # float
   ))
   return mapping
@@ -277,14 +238,9 @@ def hox_get_instance(input_complex, args, other_inputs):
   Returns:
   map of input features and label.
   """
-  mapping = {}
-
   input_protein = input_complex["protein_sequence"] # string
   input_nucleotide = input_complex["nucleotide_sequence"] # string
-  if 'zscore' in input_complex:
-    label_dG   = input_complex['zscore']
-  else:
-    label_dG   = input_complex['dG']
+  label_dG = input_complex['zscore']
 
   protein_sequences = process_sequence_without_coordinates(input_protein)
   num_aa = len(protein_sequences)
@@ -297,34 +253,34 @@ def hox_get_instance(input_complex, args, other_inputs):
   atom_attributes = []
   atom_mass_attributes = []
   atom_indices = []
-
+  aa_lengths = []
   for i, it in enumerate(protein_sequences): # per aa
     aa = list_aa[it] # get aa string
     aa_atoms = list(dictionary_covalent_bonds[aa].keys())
     num_atoms = len(aa_atoms)
     atom_type = np.array([list_atoms.index(x) for x in aa_atoms])
     atom_mass = np.array([atom_type_mass[x] for x in atom_type])
-    
-    atom_type = atom_type.reshape(-1,1) # (num_atoms, 1)
-    atom_mass = atom_mass.reshape(-1,1) # (num_atoms, 1)
-    
+    # atom_type = atom_type.reshape(-1,1) # (num_atoms, 1)
+    # atom_mass = atom_mass.reshape(-1,1) # (num_atoms, 1)
     atom_type = remove_nan(atom_type)
     atom_mass = remove_nan(atom_mass)
-    
     atom_attributes.append(atom_type)
     atom_mass_attributes.append(atom_mass)
-
     # indicates each atom belong to the index of aa
     atom_indices.append(np.ones((num_atoms,), dtype=np.int32) * i)
+    aa_lengths.append(num_atoms)
+
+  feature_by_atom = np.zeros((num_aa, MAX_NUM_ATOMS_IN_AA), dtype=np.float32)
+  for i in range(num_aa):
+    feature_by_atom[i, :aa_lengths[i]] = atom_attributes[i]
 
   atom_indices = np.concatenate(atom_indices, axis=0)
   atom_indices = remove_nan(atom_indices)
   aa_attributes = remove_nan(aa_attributes)
   
 
-
-  ####################################
-  # process nucleotide data. nucleotide_to_index = {'A':0, 'C':1, 'G':2, 'T':3, 'U':3}
+  ################# get nucleotide features #################
+  # nucleotide_to_index = {'A':0, 'C':1, 'G':2, 'T':3, 'U':3}
   nucleotide_sequences = None
   if '|' in input_nucleotide:
     nucleotide_sequences = input_nucleotide.split('|')
@@ -334,20 +290,26 @@ def hox_get_instance(input_complex, args, other_inputs):
   nucleotide_attributes = list()
   for seq in nucleotide_sequences:
     seq_data = np.array( [nucleotide_to_index[it] for it in seq] )
+    # TODO: use bool instead.
     seq_data = binarize_categorical(seq_data, 4).astype(np.float32) # (num_nc, 4)
+    # TODO: use other features
+    # seq_data = np.concatenate([seq_data, other_feature], axis=1)
     seq_data = remove_nan(seq_data)
     nucleotide_attributes.append(seq_data)
+  # TODO: how to use double chains? 
+  #       combine to single chain or create 2 channel?
   nucleotide_attributes = np.concatenate(nucleotide_attributes)
 
 
+  mapping = {}
   mapping.update(dict(
     aa_attributes = aa_attributes, # (num_aa, 20) ? + 30
-    aa_hmm_pwm = None, # (num_aa, 30)
-    aa_pssm_pwm = None, # (num_aa, 20)
-    aa_psfm_pwm = None, # (num_aa, 20)
-    aa_indices = aa_indices, # (num_aa,)
-    atom_attributes = atom_attributes, # list[np.ndarray=(num_atoms,1)]
-    atom_indices = atom_indices, # (all_atoms_in_aa, )
+    aa_pwm = None,
+    # aa_indices = aa_indices, # (num_aa,)
+    # atom_attributes = atom_attributes, # list[np.ndarray=(num_atoms,1)]
+    atom_attributes = feature_by_atom, # (num_aa, MAX_NUM_ATOMS)
+    aa_lengths = aa_lengths, # per aa length
+    # atom_indices = atom_indices, # (all_atoms_in_aa, )
     nucleotide_attributes = nucleotide_attributes, # (num_nc', 4) num_nc' = sum(all chain)
     nucleotide_other_attributes = None, # (num_nc', 10) 
     label = label_dG, # float

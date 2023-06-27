@@ -217,7 +217,7 @@ def add_argument(parser):
 
     ## input features
     parser.add_argument("--pwm_type",
-                        default='pssm',
+                        default='',
                         type=str,
                         help='use pwm feature as input, and choose pwm type')
     parser.add_argument("--use_chemistry",

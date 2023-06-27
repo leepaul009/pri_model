@@ -107,6 +107,7 @@ def learning_rate_decay(args, i_epoch, optimizer, optimizer_2=None):
   #                 p['lr'] *= 0.3
 
 def save_ckpt(model, opt, save_dir, epoch, iter):
+  save_dir = os.path.join(save_dir, "checkpoint")
   if not os.path.exists(save_dir):
     print("Directory {} doesn't exist, create a new.".format(save_dir))
     os.makedirs(save_dir)
@@ -122,6 +123,7 @@ def save_ckpt(model, opt, save_dir, epoch, iter):
 
   output_model_file = os.path.join(
     save_dir, "model.{}.{}.ckpt".format(epoch + 1, iter))
+  print("save checkpoint to {}".format(output_model_file))
   torch.save(
     {"epoch": epoch + 1, 
       "state_dict": state_dict, 
@@ -215,10 +217,17 @@ def load_pretrain(net, pretrain_dict):
             state_dict[key] = value
     net.load_state_dict(state_dict)
 
+def preprocess(args):
+  save_dir = os.path.join("output", args.output_dir)
+  if not os.path.exists(save_dir):
+    print("Directory {} doesn't exist, create a new.".format(save_dir))
+    os.makedirs(save_dir)
+
 def main():
   parser = argparse.ArgumentParser()
   utils.add_argument(parser)
   args: utils.Args = parser.parse_args()
+  preprocess(args)
 
   torch.cuda.set_device(args.local_rank)
   device = torch.device('cuda', args.local_rank)
@@ -232,7 +241,7 @@ def main():
   model = GraphNet(config, args)
   model = model.cuda()
 
-  post_process = PostProcess()
+  post_process = PostProcess(args.output_dir)
     
   if distributed:
     model = DistributedDataParallel(

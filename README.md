@@ -71,7 +71,7 @@ nohup python -u train.py --data_dir data/pri_data/train --data_dir_for_val data/
 
 ### 3.3 Inference
 ```
-python train.py --do_test --data_dir_for_test data/pri_data/test --core_num 8 --output_dir output --test_batch_size 16 --resume --resume_path output_pssm_02/model.300.252.ckpt
+python train.py --do_test --data_dir_for_test data/pri_data/test --core_num 8 --output_dir output/fixmodel_01 --test_batch_size 16 --resume --resume_path output/fixmodel_01/model.300.252.ckpt
 
 
 ```
@@ -80,6 +80,6 @@ python train.py --do_test --data_dir_for_test data/pri_data/test --core_num 8 --
 ### 4. pretrain with other data
 ```
 
-nohup python -u  train.py --data_name hox_data --data_dir data/hox_data/train --data_dir_for_val data/hox_data/val --core_num 24 --output_dir output_hox_01 --train_batch_size 40 --num_train_epochs 300 --do_eval --pwm_type none  >train_hox_01.log 2>&1 &
+nohup python -u  train.py --data_name hox_data --data_dir data/hox_data/train --data_dir_for_val data/hox_data/val --core_num 8 --output_dir output_hox_01 --train_batch_size 160 --num_train_epochs 300 --do_eval  >train_hox_01.log 2>&1 &
 
 ```
