@@ -121,15 +121,16 @@ class SubGraph(nn.Module):
             hidden_states = hidden_states + temp
             hidden_states = self.layers_2[layer_index](hidden_states)
 
-        list_hidden_states = []
-        for i in range(batch_size):
-            iend = lengths[i]
-            iend = max(1, iend)
-            hidden_states_per_aa = torch.max(hidden_states[i, :iend], dim=0)[0]
-            list_hidden_states.append(hidden_states_per_aa.unsqueeze(0))
-        hidden_states = torch.cat(list_hidden_states)
-
-        return hidden_states
+        # list_hidden_states = []
+        # for i in range(batch_size):
+        #     iend = lengths[i]
+        #     iend = max(1, iend)
+        #     hidden_states_per_aa = torch.max(hidden_states[i, :iend], dim=0)[0]
+        #     list_hidden_states.append(hidden_states_per_aa.unsqueeze(0))
+        # hidden_states = torch.cat(list_hidden_states)
+        
+        return torch.max(hidden_states, dim=1)[0]
+        # return hidden_states
         # return torch.max(hidden_states, dim=1)[0], \
         #        torch.cat(utils.de_merge_tensors(hidden_states, lengths))
 
@@ -482,7 +483,7 @@ class GraphNet(nn.Module):
         na_embedding, nc_lengths = self.na_attribute_embeding(na_attributes, na_other_attributes, device, batch_size)
         
         ########################################################
-
+        
         complex_embedding = self.forward_encode_sub_graph(
             atom_attributes, aa_lengths, na_embedding, nc_lengths, device, batch_size)
 
@@ -502,10 +503,11 @@ class GraphNet(nn.Module):
             complex_embedding_from_seq.append(f3)
         complex_embedding_from_seq, _ = utils.merge_tensors(complex_embedding_from_seq, device=device)
         complex_embedding = torch.cat([complex_embedding, complex_embedding_from_seq], dim=-1)
+        
         ########################################################
-        '''
+        
         ### do padding for sub graph (but very slow)
-
+        '''
         # [bs, max(n_aa+n_nc), h/2]
         aa_embedding_from_atom, nc_embedding_from_atom = self.forward_encode_sub_graph(
             atom_attributes, aa_lengths, na_embedding, nc_lengths, device, batch_size)
@@ -533,8 +535,8 @@ class GraphNet(nn.Module):
             complex_embedding.append(temp) # (n_aa+n_nc, h)
         # complex_embedding = torch.cat(complex_embedding, dim=0) # (N, n_aa+n_nc, h)
         complex_embedding, _ = utils.merge_tensors(complex_embedding, device=device) # (N, n_aa+n_nc, h)
-        
         '''
+        
         ########################################################
 
 
@@ -613,13 +615,18 @@ class PostProcess(nn.Module):
 
         return metrics
     
-
+    def set_output_dir(self, path):
+        self.output_dir = path
 
     def display(self, metrics, epoch, step=None, lr=None, time=None):
         if lr is not None:
             print("Epoch = {}, Step = {}".format(epoch, step))
         else:
             print("************************* Validation *************************")
+        
+        if 'reg_loss' not in metrics:
+            print(metrics.keys())
+
         loss = metrics["reg_loss"] / (metrics["num_reg"] + 1e-10)
         if lr is not None:
             print("loss = %2.4f, time = %2.4f" % (loss, time))
@@ -640,7 +647,11 @@ class PostProcess(nn.Module):
                 output_file = os.path.join(save_dir, "pred_output_{}".format(epoch))
                 np.savez(output_file, preds=preds, gts=gts)
 
+                info = {'loss': loss, 'rvalue': rvalue, 'pvalue': pvalue, 'rrmse': rrmse}
+                output_file = os.path.join(save_dir, "info_{}_{:.3f}".format(epoch, rvalue))
+                np.savez(output_file, info=info)
+
 
             print("validation loss = %2.4f, rvalue = %2.4f, pvalue = %2.8f, rrmse = %2.4f" % (loss, rvalue, pvalue, rrmse))
-            print("gts: {} ".format(gts))
-            print("preds: {} ".format(preds))
+            # print("gts: {} ".format(gts))
+            # print("preds: {} ".format(preds))

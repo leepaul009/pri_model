@@ -44,6 +44,10 @@ python train.py --data_dir data/pri_data/train --data_dir_for_val data/pri_data/
 #   train_batch_size: how may complex trained in one step
 #   num_train_epochs: number of training epochs
 #   do_eval
+
+# train from background process
+nohup python -u train.py --data_dir data/cv5_data/cv0/train --data_dir_for_val data/cv5_data/cv0/test --core_num 8 --output_dir output_cv5_id0 --train_batch_size 8 --eval_batch_size 8 --num_train_epochs 300 --do_eval --pwm_type pssm   >train_cv0501_01.log 2>&1 &
+
 ```
 
 ### 3.2 Train from pretrained model, also named five-tuning
@@ -80,6 +84,6 @@ python train.py --do_test --data_dir_for_test data/pri_data/test --core_num 8 --
 ### 4. pretrain with other data
 ```
 
-nohup python -u  train.py --data_name hox_data --data_dir data/hox_data/train --data_dir_for_val data/hox_data/val --core_num 8 --output_dir output_hox_01 --train_batch_size 160 --num_train_epochs 300 --do_eval  >train_hox_01.log 2>&1 &
+nohup python -u  train.py --data_name hox_data --data_dir data/hox_data/train --data_dir_for_val data/hox_data/val --core_num 8 --output_dir output_hox_01 --train_batch_size 280 --num_train_epochs 300 --do_eval  >train_hox_01.log 2>&1 &
 
 ```

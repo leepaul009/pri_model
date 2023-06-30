@@ -32,7 +32,7 @@ nohup python -u train.py --data_dir data/pri_data/train --data_dir_for_val data/
 # validation loss = 0.4110, rvalue = 0.8597, pvalue = 0.00000000, rrmse = 1.3221
 
 # do test
-python train.py --do_test --data_dir_for_test data/pri_data/test --core_num 8 --output_dir output --test_batch_size 16 --resume --resume_path output_pssm_nc_03/model.274.252.ckpt --pwm_type pssm
+python train.py --do_test --data_dir_for_test data/pri_data/test --core_num 8 --output_dir output --test_batch_size 16 --resume --resume_path output/output_pssm_nc_03/model.274.252.ckpt --pwm_type pssm
 
 # test result:
 Test loss = 0.5421, rvalue = 0.7878, pvalue = 0.00000000, rrmse = 1.8332
@@ -95,10 +95,13 @@ pretrain with table_hox_zscore_102107 dataset(very big dataset), face a memory e
 ```
 
 
-### record 2023/06/20
+### record 2023/06/29
 ```
+nohup python -u train.py --data_dir data/cv5_data/cv0/train --data_dir_for_val data/cv5_data/cv0/test --core_num 8 --output_dir output/output_cv5_id0 --train_batch_size 8 --eval_batch_size 4 --num_train_epochs 300 --do_eval --pwm_type pssm   >train_cv0501_01.log 2>&1 &
 
 
+
+nohup python -u train_cv.py --data_dir data/cv5_data/cv0/train --data_dir_for_val data/cv5_data/cv0/test --core_num 8 --output_dir output/output_cv5_id0 --train_batch_size 8 --eval_batch_size 8 --num_train_epochs 300 --do_eval --pwm_type pssm  >train_cv0501_01.log 2>&1 &
 
 ```
 
