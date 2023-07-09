@@ -39,6 +39,10 @@ def add_argument(parser):
     parser.add_argument("--data_name",
                         default='pri_data',
                         type=str)
+    
+    parser.add_argument("--label_bin",
+                        action='store_true',
+                        help="Whether to run label_bin.")
 
     parser.add_argument("--data_dir",
                         default='data/pri_data/train/',
@@ -230,6 +234,8 @@ class Args:
     data_dir_for_test = None
     data_name = None
     data_kind = None
+    
+    label_bin = None
     
     do_train = None
     do_eval = None

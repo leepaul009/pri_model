@@ -107,6 +107,14 @@ nohup python -u train_cv.py --data_dir data/cv5_data/cv0/train --data_dir_for_va
 
 
 
+###
+```
+1) put cluster into train/val/test
+2) do seperately for each na type (na balance)
+3) complex size balance
+4) wt 80% in test
+5) long to test
+6) dg balance
 
 
 
@@ -114,6 +122,49 @@ nohup python -u train_cv.py --data_dir data/cv5_data/cv0/train --data_dir_for_va
 
 
 
+
+
+nohup python -u train.py --data_dir data/tmp_data/train --data_dir_for_val data/tmp_data/val --core_num 8 --output_dir output/test_valid_02 --train_batch_size 40 --eval_batch_size 4 --learning_rate 0.0005 --num_train_epochs 300 --do_eval --pwm_type pssm >test_valid_02.log 2>&1 &
+# bad, val loss not decrease
+
+
+
+python train.py --debug --data_dir data/tmp_data/mid01/train --data_dir_for_val data/tmp_data/mid01/val --core_num 8 --output_dir output/test_valid_02 --train_batch_size 32 --eval_batch_size 4 --learning_rate 0.001 --num_train_epochs 300 --do_eval --pwm_type pssm --label_bin
+
+
+
+nohup python -u train.py --data_dir data/tmp_data/hard01/train --data_dir_for_val data/tmp_data/hard01/val --core_num 8 --output_dir output/test_valid_02 --train_batch_size 40 --eval_batch_size 4 --learning_rate 0.001 --num_train_epochs 300 --do_eval --pwm_type pssm --label_bin  >test_valid_02.log 2>&1 &
+
+
+--sub_graph_depth 1
+
+
+## use 18 bins
+## use 8 bins with kmeans cluster
+## use h=512
+
+
+nohup python -u train.py --data_dir data/tmp_data/mid01/train --data_dir_for_val data/tmp_data/mid01/val --core_num 8 --output_dir output/test_valid_02 --train_batch_size 16 --eval_batch_size 4 --learning_rate 0.001 --num_train_epochs 300 --do_eval --pwm_type pssm --hidden_size 512 --label_bin  >test_valid_02.log 2>&1 &
+
+
+## use hard dataset
+## use 8 bins with kmeans cluster
+## use h=256
+## use dropout in sub/global graph, p=0.1
+## use cos lr sched
+### bad
+
+## use hard dataset
+## use 8 bins with kmeans cluster
+## use h=256
+## use dropout in sub/global graph, p=0.1 (global slightly diff)
+## use cos lr sched, min_lr=def
+## use 3 depths for global graph
+### ing
+
+nohup python -u train.py --data_dir data/tmp_data/hard01/train --data_dir_for_val data/tmp_data/hard01/val --core_num 8 --output_dir output/test_valid_02 --train_batch_size 32 --eval_batch_size 4 --learning_rate 0.001 --num_train_epochs 600 --do_eval --pwm_type pssm --hidden_size 128 --label_bin  >test_valid_02.log 2>&1 &
+
+```
 
 
 

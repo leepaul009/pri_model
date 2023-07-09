@@ -18,9 +18,12 @@ import pandas as pd
 import utils
 from preprocessing.protein_chemistry import list_aa, \
   aa_to_index, dictionary_covalent_bonds, list_atoms, atom_type_mass, \
-  nucleotide_to_index
+  nucleotide_to_index, max_num_atoms_in_aa
+  
+from dataset.dataset_process import processBinLabel, computeBin
 
-MAX_NUM_ATOMS_IN_AA = 15
+
+
 
 def remove_nan(matrix,padding_value=0.):
   aa_has_nan = np.isnan(matrix).reshape([len(matrix),-1]).max(-1)
@@ -156,7 +159,7 @@ def pri_get_instance(input_complex, args, other_inputs):
     atom_indices.append(np.ones((num_atoms,), dtype=np.int32) * i)
     aa_lengths.append(num_atoms)
 
-  feature_by_atom = np.zeros((num_aa, MAX_NUM_ATOMS_IN_AA), dtype=np.float32)
+  feature_by_atom = np.zeros((num_aa, max_num_atoms_in_aa), dtype=np.float32)
   for i in range(num_aa):
     feature_by_atom[i, :aa_lengths[i]] = atom_attributes[i]
 
@@ -212,6 +215,13 @@ def pri_get_instance(input_complex, args, other_inputs):
     nc_chemistry_features = get_nc_chemistry(input_complex['na_jobid'], 
       input_complex["nucleotide_sequence"],  chemistry_dir)
   
+  ### bin label
+  bin_ctrs, bin_half_w, label_bin, label_offset = None, None, None, None
+  if args.label_bin:
+    # print("use bin label instead of simple regression")
+    bin_ctrs, bin_half_w, label_bin, label_offset \
+      = processBinLabel(args, label_dG)
+  
   mapping = {}
   mapping.update(dict(
     aa_attributes = aa_attributes, # (num_aa, 20) ? + 30
@@ -223,7 +233,11 @@ def pri_get_instance(input_complex, args, other_inputs):
     # atom_indices = atom_indices, # (all_atoms_in_aa, )
     nucleotide_attributes = nucleotide_attributes, # (num_nc', 4) num_nc' = sum(all chain)
     nucleotide_other_attributes = nc_chemistry_features, # (num_nc', 10) 
-    label = label_dG, # float
+    label         = label_dG,     # float scalar
+    bin_ctrs      = bin_ctrs,     # np.arr (n_bins, )
+    bin_half_w    = bin_half_w,   # np.arr (n_bins, )
+    label_bin     = label_bin,    # int scalar
+    label_offset  = label_offset, # float scalar
   ))
   return mapping
 
@@ -270,7 +284,7 @@ def hox_get_instance(input_complex, args, other_inputs):
     atom_indices.append(np.ones((num_atoms,), dtype=np.int32) * i)
     aa_lengths.append(num_atoms)
 
-  feature_by_atom = np.zeros((num_aa, MAX_NUM_ATOMS_IN_AA), dtype=np.float32)
+  feature_by_atom = np.zeros((num_aa, max_num_atoms_in_aa), dtype=np.float32)
   for i in range(num_aa):
     feature_by_atom[i, :aa_lengths[i]] = atom_attributes[i]
 

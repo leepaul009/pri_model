@@ -22,7 +22,8 @@ from utilities.comm import get_world_size, get_rank, is_main_process, synchroniz
 import utils
 from dataset.dataset_pri import PriDataset, PriDatasetExt
 
-from modeling.graphnet import GraphNet, PostProcess
+from modeling.graphnet import GraphNet
+from modeling.post_process import PostProcess
 
 torch.backends.cudnn.enabled = True
 torch.backends.cudnn.benchmark = True 
@@ -166,7 +167,8 @@ def val(model, dataloader, post_process, epoch, device, args):
 
 
 def train_one_epoch(model, train_dataloader, val_dataloader, 
-                    optimizer, post_process, device, i_epoch, args):
+                    optimizer, lr_scheduler,
+                    post_process, device, i_epoch, args):
   
   save_iters = 1000
   save_dir = args.output_dir
@@ -265,6 +267,10 @@ def main():
 
 
 
+  # use 20 epoch from init_lr to 0
+  lr_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+    optimizer, T_max=20)
+  
   
   if args.do_test:
     if args.data_name == 'hox_data':
@@ -306,7 +312,7 @@ def main():
 
     for i_epoch in range(int(start_epoch), int(start_epoch + args.num_train_epochs)):
 
-      learning_rate_decay(args, i_epoch, optimizer)
+      # learning_rate_decay(args, i_epoch, optimizer)
       # get_rank
       if is_main_process():
         print('Epoch: {}/{}'.format(i_epoch, int(args.num_train_epochs)), end='  ')
@@ -315,8 +321,10 @@ def main():
       # TODO: more function
       train_sampler.set_epoch(i_epoch)
       
-      train_one_epoch(model, train_dataloader, val_dataloader, optimizer, post_process, device, i_epoch, args)
+      train_one_epoch(model, train_dataloader, val_dataloader, optimizer, lr_scheduler, post_process, device, i_epoch, args)
 
+      lr_scheduler.step()
+      
 
 if __name__ == '__main__':
   ###

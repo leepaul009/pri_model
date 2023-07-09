@@ -6,7 +6,7 @@ from numba.typed import List,Dict
 
 nucleotide_to_index = {'A':0, 'C':1, 'G':2, 'T':3, 'U':3}
 
-
+max_num_atoms_in_aa = 15
 
 ### protein
 
