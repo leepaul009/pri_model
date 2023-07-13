@@ -14,7 +14,7 @@ from modeling.decoder import Decoder
 from axial_positional_embedding import AxialPositionalEmbedding
 import utils
 
-from modeling.layer import KMersNet
+from modeling.layer import KMersNet, Conv2d
 
 from preprocessing.protein_chemistry import list_atoms, max_num_atoms_in_aa
 
@@ -113,9 +113,10 @@ class SubGraph(nn.Module):
                 hidden_states = hidden_states.reshape(orig_shape)
             else:         
                 hidden_states = self.layers_2[layer_index](hidden_states)
-
-
-        return torch.max(hidden_states, dim=1)[0] # (aa, h) # , torch.cat(utils.de_merge_tensors(hidden_states, lengths))
+        
+        if self.config['use_atom_embedding']:
+            hidden_states = torch.max(hidden_states, dim=1)[0] # (aa, h)
+        return hidden_states
 
     def forward2(self, input : Tensor, lengths: Tensor):
         device = input.device
@@ -180,112 +181,132 @@ class GraphNet(nn.Module):
         hidden_size = args.hidden_size
         self.hidden_size = hidden_size
         
-        self.label_bin = args.label_bin
-        
-        # config['depth'] = args.sub_graph_depth
-        # config['hidden_size'] = args.hidden_size
+        self.use_bin_label = args.label_bin
         self.use_sub_graph = True
-        config['use_batch_norm'] = False
-        config['point_level-4-3'] = True
-        config['use_atom_embedding'] = True
-        config['atom_nfeatures'] = len(list_atoms) # 38
-        if self.use_sub_graph:
-            self.atom_level_sub_graph = SubGraph(config, hidden_size // 2, args.sub_graph_depth)
-        # self.point_level_cross_attention = CrossAttention(hidden_size)
+        self.use_atom_graph = False
 
-        # self.global_graph = GlobalGraph(hidden_size)
-        # output dim = hidden_size
-        self.global_graph = GlobalGraphRes(hidden_size)
-        
+        sub_graph_hidden_dim = hidden_size // 2 if self.use_atom_graph else hidden_size
         if self.use_sub_graph:
-            self.laneGCN_A2L = CrossAttention(hidden_size // 2)
-            self.laneGCN_L2L = GlobalGraphRes(hidden_size // 2)
-            self.laneGCN_L2A = CrossAttention(hidden_size // 2)
+            config['use_batch_norm'] = False
+            config['point_level-4-3'] = True
+            config['use_atom_embedding'] = True if self.use_atom_graph else False
+            config['atom_nfeatures'] = len(list_atoms) # 38
+            ### layers
+            self.atom_level_sub_graph = SubGraph(config, sub_graph_hidden_dim, args.sub_graph_depth)
+            self.laneGCN_A2L = CrossAttention(sub_graph_hidden_dim)
+            self.laneGCN_L2L = GlobalGraphRes(sub_graph_hidden_dim)
+            self.laneGCN_L2A = CrossAttention(sub_graph_hidden_dim)
             self.use_A2A = True
             if self.use_A2A:
-                self.laneGCN_A2A = GlobalGraphRes(hidden_size // 2)
+                self.laneGCN_A2A = GlobalGraphRes(sub_graph_hidden_dim)
+
+        self.global_graph = GlobalGraphRes(hidden_size)
 
         # TODO: adjust hidden size to 32 (used in ScanNet)
         # TODO: make 20 as param
         # TODO: make 2 as param
         # TODO: make 'relu' as para
-        # self.aa_embeding_layer = nn.RNN(
-        #     input_size=20, hidden_size=hidden_size // 2, num_layers=2, 
-        #     nonlinearity='relu', batch_first=True)
+
+        ##################################################################
+        ### aa embedding
+        ##################################################################
         self.pwm_type = args.pwm_type
-        
-        
-        aa_embedding_hidden_size = hidden_size // 2 if self.use_sub_graph else hidden_size
-        self.aa_output_features = aa_embedding_hidden_size
-        if is_pwm_type_valid(self.pwm_type):
-            self.aa_output_features = aa_embedding_hidden_size // 2
-
-        self.aa_input_features = 20
-        self.aa_embeding_layer = nn.Linear(in_features=self.aa_input_features, 
-                                           out_features=self.aa_output_features, 
-                                           bias=False)
-        self.aa_embeding_layer = TimeDistributed(self.aa_embeding_layer)
+        self.use_prot_chm = args.use_prot_chm_feature
         max_seq_len = 6000
+
+        ### update output dim
+        aa_emb_hidden_dim = sub_graph_hidden_dim if self.use_sub_graph else hidden_size
+        self.aa_out_dim = aa_emb_hidden_dim
+        if is_pwm_type_valid(self.pwm_type):
+            self.aa_out_dim = aa_emb_hidden_dim // 2
+            print("use prot pwm feature, output dim = {}".format(self.aa_out_dim))
+        if self.use_prot_chm:
+            self.aa_out_dim = aa_emb_hidden_dim // 2
+            print("use prot chm feature, output dim = {}".format(self.aa_out_dim))
+        ### seq embedding
+        self.aa_input_features = 20
+        self.aa_seq_layer = nn.Linear(in_features=self.aa_input_features, 
+                                           out_features=self.aa_out_dim, 
+                                           bias=False)
+        self.aa_seq_layer = TimeDistributed(self.aa_seq_layer)
+        # position embedding
         self.aa_pos_emb = AxialPositionalEmbedding(
-            dim = self.aa_output_features,
+            dim = self.aa_out_dim,
             axial_shape = (math.ceil(max_seq_len / 64), 64))
-  
-        if self.pwm_type == 'hmm':
-            self.aa_pwm_features = 30
-            self.aa_pwm_embeding_layer = nn.Linear(in_features=self.aa_pwm_features, 
-                                                   out_features=self.aa_output_features, bias=False)
-            self.aa_pwm_embeding_layer = TimeDistributed(self.aa_pwm_embeding_layer)
-        elif self.pwm_type == 'pssm':
-            self.aa_pwm_features = 20
-            self.aa_pwm_embeding_layer = nn.Linear(in_features=self.aa_pwm_features, 
-                                                   out_features=self.aa_output_features, bias=False)
-            self.aa_pwm_embeding_layer = TimeDistributed(self.aa_pwm_embeding_layer)
-        elif self.pwm_type == 'psfm':
-            self.aa_pwm_features = 20
-            self.aa_pwm_embeding_layer = nn.Linear(in_features=self.aa_pwm_features, 
-                                                   out_features=self.aa_output_features, bias=False)
-            self.aa_pwm_embeding_layer = TimeDistributed(self.aa_pwm_embeding_layer)
-        else:
-            NotImplemented
+        self.na_seq_norm = LayerNorm(self.aa_out_dim)
 
-        self.use_chemistry = args.use_chemistry
+        ### pwm embedding
+        if is_pwm_type_valid(self.pwm_type):
+            pwm_emd_dim = {'hmm': 30, 'pssm': 20, 'psfm': 20}
+            self.aa_pwm_layer = nn.Linear(
+                in_features=pwm_emd_dim[self.pwm_type], 
+                out_features=self.aa_out_dim, 
+                bias=False)
+            self.aa_pwm_layer = TimeDistributed(self.aa_pwm_layer)
+            # position embedding
+            self.aa_pwm_pos_emb = AxialPositionalEmbedding(
+                dim = self.aa_out_dim,
+                axial_shape = (math.ceil(max_seq_len / 64), 64))
+            self.na_pwm_norm = LayerNorm(self.aa_out_dim)
+        
+        ################ prot chemistry layer ################
+        if self.use_prot_chm:
+            self.prot_chm_dim = 37
+            self.prot_chm_layer = nn.Linear(in_features=self.prot_chm_dim, 
+                                            out_features=self.aa_out_dim, 
+                                            bias=False)
+            self.prot_chm_layer = TimeDistributed(self.prot_chm_layer)
+            # position embedding
+            self.aa_chm_pos_emb = AxialPositionalEmbedding(
+                dim = self.aa_out_dim,
+                axial_shape = (math.ceil(max_seq_len / 64), 64))
+            self.na_chm_norm = LayerNorm(self.aa_out_dim)
+        
+        ##################################################################
+        ### nc embedding
+        ##################################################################
+        self.use_nc_chm = args.use_chemistry
+        self.use_kmers = False
+        self.use_conv =  True
+        na_max_seq_len = 1024
 
-        self.use_conv = False
-        self.use_kmers = True
-
-        nc_embedding_hidden_size = hidden_size // 2 if self.use_sub_graph else hidden_size
-        self.nc_out_features = nc_embedding_hidden_size
-        if self.use_chemistry:
-            self.nc_out_features = nc_embedding_hidden_size // 2
+        nc_emb_hidden_dim = sub_graph_hidden_dim if self.use_sub_graph else hidden_size
+        self.nc_out_dim = nc_emb_hidden_dim
+        if self.use_nc_chm:
+            self.nc_out_dim = nc_emb_hidden_dim // 2
 
         if self.use_kmers:
-            self.kmers_net = KMersNet(base_channel=8, out_channels=self.nc_out_features)
+            self.kmers_net = KMersNet(base_channel=8, out_channels=self.nc_out_dim)
         elif self.use_conv: ## TODO: fix as current not allowed
-            # w=seq,h=4 ==> output: w'=seq-2(seq-3+1), h'=1(4-4+1)
-            # h-kh+1:, w-kw+1:
-            self.na_conv2d = nn.Conv2d(in_channels=1, out_channels=self.nc_out_features, kernel_size=(3,4))
+            self.na_conv2d = Conv2d(1, 8, 
+                                    kernel_size=(3, 5),
+                                    bn=True, same_padding=True)
+            self.na_fc = nn.Linear(in_features=32, out_features=self.nc_out_dim, bias=False) 
         else: ## TODO: fix as current not allowed
-            self.na_embeding_layer = nn.Linear(in_features=4, out_features=self.nc_out_features, bias=False)
-            self.na_embeding_layer = TimeDistributed(self.na_embeding_layer)
+            self.nc_seq_layer = nn.Linear(in_features=4, out_features=self.nc_out_dim, bias=False)
+            self.nc_seq_layer = TimeDistributed(self.nc_seq_layer)
 
-        na_max_seq_len = 1024
+        self.na_norm = LayerNorm(self.nc_out_dim)
         self.na_pos_emb = AxialPositionalEmbedding(
-            dim = self.nc_out_features,
+            dim = self.nc_out_dim,
             axial_shape = (math.ceil(na_max_seq_len / 64), 64))
 
-        if self.use_chemistry:
+        if self.use_nc_chm:
             # (num_nc, 1+9) => (num_nc, h/2)
-            self.na_chemi_layer = nn.Linear(in_features=10, out_features=self.nc_out_features, bias=False)
-            # self.na_comb_layer = nn.Linear(in_features=hidden_size, out_features=hidden_size // 2, bias=False)
+            self.nc_chm_dim = 10
+            self.nc_chm_layer = nn.Linear(in_features=self.nc_chm_dim, 
+                                          out_features=self.nc_out_dim, 
+                                          bias=False)
+            # self.na_comb_layer = nn.Linear(in_features=hidden_size, out_features=sub_graph_hidden_dim, bias=False)
             # concat seq_feat and other_feat to (num_nc, h) => (num_nc, h/2)
-            # nn.init.kaiming_uniform_(self.na_chemi_layer.weight, a=1)
+            # nn.init.kaiming_uniform_(self.nc_chm_layer.weight, a=1)
             # nn.init.kaiming_uniform_(self.na_comb_layer.weight, a=1)
 
         # TODO: if we 
         self.reg_head = nn.Linear(in_features=hidden_size * 2, out_features=hidden_size, bias=False)
         # self.reg_pred = nn.Linear(in_features=hidden_size, out_features=1, bias=False)
 
-        if self.label_bin:
+        if self.use_bin_label:
             # TODO: get from parameters
             num_bins = 8
             ### logics and regression header
@@ -314,7 +335,10 @@ class GraphNet(nn.Module):
             for l in [self.reg_head, self.reg_pred]:
                 if l.bias is not None:
                     nn.init.constant_(l.bias, 0)
-        
+       
+        self.use_dropout = True
+        if self.use_dropout:
+            self.dropout = nn.Dropout(p=0.1) 
         
 
     def forward_encode_sub_graph2(
@@ -406,24 +430,74 @@ class GraphNet(nn.Module):
 
             rdna_feats = rdna_feats + self.laneGCN_A2L(
                 rdna_feats.unsqueeze(0), prot_feats.unsqueeze(0)).squeeze(0)
+            # if self.use_dropout:
+            #     rdna_feats = self.dropout(rdna_feats)
+            
             rdna_feats = rdna_feats + self.laneGCN_L2L(
                 rdna_feats.unsqueeze(0)).squeeze(0)
+            if self.use_dropout:
+                rdna_feats = self.dropout(rdna_feats)
+                
             prot_feats = prot_feats + self.laneGCN_L2A(
                 prot_feats.unsqueeze(0), rdna_feats.unsqueeze(0)).squeeze(0)
-            
+            # if self.use_dropout:
+            #     prot_feats = self.dropout(prot_feats)
+                
             if self.use_A2A:
                 prot_feats = prot_feats + self.laneGCN_A2A(
                     prot_feats.unsqueeze(0)).squeeze(0)
-
+            if self.use_dropout:
+                prot_feats = self.dropout(prot_feats)
+                
             prot_states_batch[i] = torch.cat([prot_feats, rdna_feats]) # [num_aa+num_nc, h/2]
             # prot_states_batch[i] = prot_feats # [aa, h/2]
+            
+            # if self.use_dropout:
+            #     prot_states_batch[i] = self.dropout(prot_states_batch[i])
 
         return prot_states_batch
+
+    def forward_encode_sub_graph_updated(
+            self, 
+            prot_embedding,  # Tensor
+            prot_lengths,    # List[Int]
+            nc_embedding,    # Tensor
+            nc_lengths,      # [List[Int]]
+            device, batch_size) -> List[Tensor]:
+        x1 = self.atom_level_sub_graph(prot_embedding, prot_lengths) # (bs, max num_aa, h/2)
+        x2 = self.atom_level_sub_graph(nc_embedding, nc_lengths) # (bs, max num_nc, h/2)
+        
+        list_emb = []
+        for i in range(batch_size):
+            # prot_feats = prot_states_batch[i] # (num_aa, h/2)
+            prot_feats = x1[i, :prot_lengths[i]] # (num_aa, h/2)
+            rdna_feats = x2[i, :nc_lengths[i]] # (num_nc, h/2)
+
+            rdna_feats = rdna_feats + self.laneGCN_A2L(
+                rdna_feats.unsqueeze(0), prot_feats.unsqueeze(0)).squeeze(0)
+            rdna_feats = rdna_feats + self.laneGCN_L2L(
+                rdna_feats.unsqueeze(0)).squeeze(0)
+            if self.use_dropout:
+                rdna_feats = self.dropout(rdna_feats)
+                
+            prot_feats = prot_feats + self.laneGCN_L2A(
+                prot_feats.unsqueeze(0), rdna_feats.unsqueeze(0)).squeeze(0)
+            if self.use_A2A:
+                prot_feats = prot_feats + self.laneGCN_A2A(
+                    prot_feats.unsqueeze(0)).squeeze(0)
+            if self.use_dropout:
+                prot_feats = self.dropout(prot_feats)
+
+            tmp = torch.cat([prot_feats, rdna_feats]) # [num_aa+num_nc, h/2]
+            list_emb.append(tmp)
+
+        return list_emb
     
     def aa_attribute_embeding(
             self,
             aa_attributes : List[np.ndarray], 
             aa_pwm : List[np.ndarray],
+            aa_chm : List[np.ndarray],
             device, batch_size) -> Tuple[Tensor, List[int]]:
         """
         compute embedding of amino acid
@@ -437,25 +511,40 @@ class GraphNet(nn.Module):
         for i in range(batch_size):
             prot = torch.tensor(aa_attributes[i], device=device)
             prot_list.append(prot)
-        aa_embedding, lengths = utils.merge_tensors(prot_list, device=device) # [bs, max_n_aa, 20]
-        aa_embedding = self.aa_embeding_layer(aa_embedding) # [bs, max_n_aa, 20]->[bs, max_n_aa, h/4]
-        aa_embedding += self.aa_pos_emb(aa_embedding)
-        aa_embedding = F.relu(aa_embedding)
-
+        x, lengths = utils.merge_tensors(prot_list, device=device) # [bs, max_n_aa, 20]
+        x = self.aa_seq_layer(x) # [bs, max_n_aa, 20]->[bs, max_n_aa, h/4]
+        x += self.aa_pos_emb(x)
+        # x = self.dropout(x)
+        x = self.na_seq_norm(x)
+        
         if is_pwm_type_valid(self.pwm_type) and aa_pwm is not None:
             pwm_list = []
             for i in range(batch_size):
                 tensor = torch.tensor(aa_pwm[i], device=device)
                 pwm_list.append(tensor)
             aa_pwm_embedding, _ = utils.merge_tensors(pwm_list, device=device) # [bs, max_n_aa, 30]
-            aa_pwm_embedding = self.aa_pwm_embeding_layer(aa_pwm_embedding) # [bs, max_n_aa, 30]->[bs, max_n_aa, h/4]
-            aa_pwm_embedding = F.relu(aa_pwm_embedding)    
-            final_embedding = torch.cat([aa_embedding, aa_pwm_embedding], dim=-1) # [bs, max_n_aa, h/2]
-        else:
-            final_embedding = aa_embedding
+            aa_pwm_embedding = self.aa_pwm_layer(aa_pwm_embedding) # [bs, max_n_aa, 30]->[bs, max_n_aa, h/4]
+            aa_pwm_embedding += self.aa_pwm_pos_emb(aa_pwm_embedding)
+            # aa_pwm_embedding = self.dropout(aa_pwm_embedding)
+            aa_pwm_embedding = self.na_pwm_norm(aa_pwm_embedding)
+            # aa_pwm_embedding = F.relu(aa_pwm_embedding)
+            x = torch.cat([x, aa_pwm_embedding], dim=-1) # [bs, max_n_aa, h/2]
 
-        # return utils.de_merge_tensors(final_embedding, lengths), lengths
-        return final_embedding, lengths
+        if self.use_prot_chm:
+            chm_list = []
+            for i in range(batch_size):
+                tensor = torch.tensor(aa_chm[i], device=device)
+                chm_list.append(tensor)
+            chm_embedding, _ = utils.merge_tensors(chm_list, device=device) # (bs, max(num_aa), 37)
+            chm_embedding = self.prot_chm_layer(chm_embedding) # (bs, max(num_aa), h/4)
+            chm_embedding += self.aa_chm_pos_emb(chm_embedding)
+            # chm_embedding = self.dropout(chm_embedding)
+            chm_embedding = self.na_chm_norm(chm_embedding)
+            # chm_embedding = F.relu(chm_embedding)
+            x = torch.cat([x, chm_embedding], dim=-1) # (bs, max(num_aa), h/2)
+            
+        x = F.relu(x)
+        return x, lengths
 
     def na_attribute_embeding(
             self,
@@ -473,74 +562,64 @@ class GraphNet(nn.Module):
         for i in range(batch_size):
             tensor = torch.tensor(na_attributes[i], device=device)
             input_list.append(tensor)
-        # merge to Tensor=(bs, max(n_na), 4)
-        na_embedding, lengths = utils.merge_tensors(input_list, device=device)
+        x, lengths = utils.merge_tensors(input_list, device=device) # (bs, max(n_na), 4)
 
         if self.use_kmers:
-            # (bs, 1, max(n_na), 4)->(bs, max(n_na), h/2)
-            na_embedding = self.kmers_net(na_embedding.unsqueeze(1))
-            na_embedding += self.na_pos_emb(na_embedding)
+            x = self.kmers_net(x.unsqueeze(1)) # (bs, 1, max(n_na), 4)->(bs, max(n_na), h)
         elif self.use_conv:
-            # (bs, 1, max(n_na), 4)->(bs, h/2, max(n_na)-2, 1)
-            temp = self.na_conv2d(na_embedding.unsqueeze(1))
-            # (bs, h/2, max(n_na)-2, 1) -> (bs, max(n_na)-2, h/2)
-            na_embedding = temp.squeeze(-1).permute(0, 2, 1).contiguous()
-            lengths = [max(l-2, 1) for l in lengths]
+            x = self.na_conv2d(x.unsqueeze(1)) # (N,1,seq,4)=>(N,C,seq,4)
+            x = x.permute(0,2,1,3).contiguous() # (N,Seq,C,4)
+            x = x.view(x.shape[0], x.shape[1], x.shape[2]*x.shape[3]) # (N,Seq,C*4)
+            x = self.na_fc(x) # (N,Seq,h)
+            
         else:
-            # (bs, max(n_na), 4)->(bs, max(n_na), h/2)
-            na_embedding = self.na_embeding_layer(na_embedding)
+            x = self.nc_seq_layer(x) # (bs, max(n_na), 4)->(bs, max(n_na), h)
+        x += self.na_pos_emb(x)
 
-        if self.use_chemistry and na_other_attributes is not None:
-            chemi_input_list = []
+        if self.use_nc_chm and na_other_attributes is not None:
+            chm_list = []
             for i in range(batch_size):
-                chemi_tensor = torch.tensor(na_other_attributes[i], device=device)
-                chemi_input_list.append(chemi_tensor)
-            # merge to Tensor=(bs, max(n_na), 10)
-            na_chemi_embedding, _ = utils.merge_tensors(chemi_input_list, device=device)
-            # (bs, max(n_na), 10)->(bs, max(n_na), h/4)
-            na_chemi_embedding = self.na_chemi_layer(na_chemi_embedding)
-            na_embedding = torch.cat([na_embedding, na_chemi_embedding], dim=-1) # (bs, max(n_na), h/2)
-            # na_embedding = self.na_comb_layer(na_embedding) # (bs, max(n_na), h) => (bs, max(n_na), h/2)
-
-        na_embedding = F.relu(na_embedding)
-
-        # return utils.de_merge_tensors(na_embedding, lengths), lengths
-        return na_embedding, lengths
+                tensor = torch.tensor(na_other_attributes[i], device=device)
+                chm_list.append(tensor)
+            chm_emb, _ = utils.merge_tensors(chm_list, device=device) # (bs, max(n_na), 10)
+            chm_emb = self.nc_chm_layer(chm_emb) # (bs, max(n_na), h/2)
+            x = torch.cat([x, chm_emb], dim=-1) # (bs, max(n_na), h)
+        
+        x = self.na_norm(x) # (N,Seq,h)
+        x = F.relu(x)
+        return x, lengths
 
     def forward(self, mapping: List[Dict], device):
-        # amino acid feature, tensor shape = (number_of_amino_acid, 20)
-        aa_attributes = utils.get_from_mapping(mapping, 'aa_attributes') # List[np.ndarray=(n_aa, 20)]
-        aa_pwm = None
-        if is_pwm_type_valid(self.pwm_type):
-            aa_pwm = utils.get_from_mapping(mapping, 'aa_pwm')
-
+        ### amino acid features
+        aa_attributes = utils.get_from_mapping(mapping, 'aa_attributes') # List[np.ndarray=(num_aa, 20)]
+        aa_pwm = utils.get_from_mapping(mapping, 'aa_pwm') if is_pwm_type_valid(self.pwm_type) else None
+        aa_chm = utils.get_from_mapping(mapping, 'aa_chm') if self.use_prot_chm else None
         atom_attributes = utils.get_from_mapping(mapping, 'atom_attributes') # List[np.ndarray=(num_aa, MAX_NUM_ATOMS)]
         aa_lengths = utils.get_from_mapping(mapping, 'aa_lengths') # List[List[int]]
-        # aa_indices = utils.get_from_mapping(mapping, 'aa_indices') # not used
-        # atom_indices = utils.get_from_mapping(mapping, 'atom_indices')
-        # DNA/RNA feature, tensor shape = (number_of_DNA/RNA, 4)
-        na_attributes = utils.get_from_mapping(mapping, 'nucleotide_attributes') # List[np.ndarray=(num_nc, 4)]
 
-        if self.use_chemistry:
-            na_other_attributes = utils.get_from_mapping(mapping, 'nucleotide_other_attributes') # List[np.ndarray=(n_nc, 10)]
-        else:
-            na_other_attributes = None
+        ### nuc acid features
+        na_attributes = utils.get_from_mapping(mapping, 'nucleotide_attributes') # List[np.ndarray=(num_nc, 4)]
+        # List[np.ndarray=(n_nc, 10)]
+        na_other_attributes = utils.get_from_mapping(mapping, 'nucleotide_other_attributes') if self.use_nc_chm else None
 
         batch_size = len(aa_attributes)
 
         # compute embedding feature for amino acid sequence, (N, max(num_aa), h/2)
-        aa_embedding, prot_lengths = self.aa_attribute_embeding(aa_attributes, aa_pwm, device, batch_size)
+        aa_embedding, prot_lengths = self.aa_attribute_embeding(aa_attributes, aa_pwm, aa_chm, device, batch_size)
         # compute embedding feature for DNA/RNA, (N, max(num_nc), h/2)
         na_embedding, nc_lengths = self.na_attribute_embeding(na_attributes, na_other_attributes, device, batch_size)
         
         ########################################################
-        if self.use_sub_graph:
+        if self.use_sub_graph and not self.use_atom_graph:
+            complex_embedding = self.forward_encode_sub_graph_updated(
+                aa_embedding, prot_lengths, na_embedding, nc_lengths, device, batch_size)
+            complex_embedding, complex_lengths = utils.merge_tensors(complex_embedding, device=device)
+
+        elif self.use_sub_graph and self.use_atom_graph:
             complex_embedding = self.forward_encode_sub_graph(
                 atom_attributes, aa_lengths, na_embedding, nc_lengths, device, batch_size)
-
             complex_embedding, complex_lengths = utils.merge_tensors(complex_embedding, device=device)
-            
-            # complex_embedding
+            ### complex_embedding
             aa_embedding = utils.de_merge_tensors(aa_embedding, prot_lengths)
             na_embedding = utils.de_merge_tensors(na_embedding, nc_lengths)
             complex_embedding_from_seq = []
@@ -549,10 +628,8 @@ class GraphNet(nn.Module):
                 complex_embedding_from_seq.append(f3)
             # => (bs, max(num_aa+num_nc), h/2)
             complex_embedding_from_seq, _ = utils.merge_tensors(complex_embedding_from_seq, device=device)
-            complex_embedding = torch.cat([complex_embedding, complex_embedding_from_seq], dim=-1)
-        
-            ########################################################
-            
+            complex_embedding = torch.cat([complex_embedding, complex_embedding_from_seq], dim=-1)   
+
             ### do padding for sub graph (but very slow)
             '''
             # [bs, max(n_aa+n_nc), h/2]
@@ -577,8 +654,6 @@ class GraphNet(nn.Module):
             # complex_embedding = torch.cat(complex_embedding, dim=0) # (N, n_aa+n_nc, h)
             complex_embedding, _ = utils.merge_tensors(complex_embedding, device=device) # (N, n_aa+n_nc, h)
             '''
-            
-            ########################################################
         else:
             aa_embedding = utils.de_merge_tensors(aa_embedding, prot_lengths)
             na_embedding = utils.de_merge_tensors(na_embedding, nc_lengths)
@@ -623,7 +698,7 @@ class GraphNet(nn.Module):
         labels = utils.get_from_mapping(mapping, 'label')
         labels = torch.tensor(labels, device=device, dtype=torch.float32).reshape(-1, 1) # [bs, 1]
 
-        if self.label_bin:
+        if self.use_bin_label:
             # get label and offset
             
             # bin_ctrs = bin_ctrs,

@@ -27,6 +27,9 @@ from torch import Tensor
 def add_argument(parser):
     assert isinstance(parser, argparse.ArgumentParser)
     # Required parameters
+    parser.add_argument("--use_cpu",
+                        action='store_true',
+                        help="Whether to run training.")
     parser.add_argument("--do_train",
                         action='store_true',
                         help="Whether to run training.")
@@ -227,6 +230,15 @@ def add_argument(parser):
     parser.add_argument("--use_chemistry",
                         action='store_true',
                         help='use chemistry feature as input')
+    parser.add_argument("--use_prot_chm_feature",
+                        action='store_true',
+                        help='use chemistry feature as input')
+    parser.add_argument("--use_repeat_sampler",
+                        action='store_true',
+                        help='use chemistry feature as input')
+    parser.add_argument("--display_steps",
+                        default=10,
+                        type=int)         
 
 class Args:
     data_dir = None
@@ -237,6 +249,7 @@ class Args:
     
     label_bin = None
     
+    use_cpu = None
     do_train = None
     do_eval = None
     do_test = None
@@ -303,6 +316,9 @@ class Args:
     ## input features
     pwm_type = None
     use_chemistry = None
+    use_prot_chm_feature = None
+    use_repeat_sampler = None
+    display_steps = None
 
 args: Args = None
 

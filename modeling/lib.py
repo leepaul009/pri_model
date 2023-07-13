@@ -242,37 +242,37 @@ class GlobalGraphRes(nn.Module):
     def __init__(self, hidden_size):
         super(GlobalGraphRes, self).__init__()
         # internal dim = hidden/2
-        # self.global_graph = GlobalGraph(hidden_size, hidden_size // 2)
-        # self.global_graph2 = GlobalGraph(hidden_size, hidden_size // 2)
+        self.global_graph = GlobalGraph(hidden_size, hidden_size // 2)
+        self.global_graph2 = GlobalGraph(hidden_size, hidden_size // 2)
         
         # self.global_graph = GlobalGraph(hidden_size, hidden_size)
         # self.global_graph2 = GlobalGraph(hidden_size, hidden_size)
         
-        self.layers = nn.ModuleList([GlobalGraph(hidden_size, num_attention_heads=2) 
-                                for _ in range(3)])
-        self.layers_2 = nn.ModuleList([LayerNorm(hidden_size) for _ in range(3)])
+        # self.layers = nn.ModuleList([GlobalGraph(hidden_size, num_attention_heads=2) 
+        #                         for _ in range(3)])
+        # self.layers_2 = nn.ModuleList([LayerNorm(hidden_size) for _ in range(3)])
         
-        self.use_dropout = True
-        if self.use_dropout:
-            self.dropout = nn.Dropout(p=0.1)
+        # self.use_dropout = True
+        # if self.use_dropout:
+        #     self.dropout = nn.Dropout(p=0.1)
 
     def forward(self, hidden_states, attention_mask=None, mapping=None):
         # hidden_states = self.global_graph(hidden_states, attention_mask, mapping) \
         #                 + self.global_graph2(hidden_states, attention_mask, mapping)
-        # hidden_states = torch.cat([self.global_graph(hidden_states, attention_mask, mapping),
-        #                            self.global_graph2(hidden_states, attention_mask, mapping)], dim=-1)
+        hidden_states = torch.cat([self.global_graph(hidden_states, attention_mask, mapping),
+                                   self.global_graph2(hidden_states, attention_mask, mapping)], dim=-1)
         
-        for layer_index, layer in enumerate(self.layers):
-            temp = hidden_states
-            # hidden_states = layer(hidden_states, attention_mask)
-            # hidden_states = self.layers_2[layer_index](hidden_states)
-            # hidden_states = F.relu(hidden_states) + temp
-            hidden_states = layer(hidden_states, attention_mask, mapping)
-            if self.use_dropout:
-                hidden_states = self.dropout(hidden_states)
-            hidden_states = F.relu(hidden_states)
-            hidden_states = hidden_states + temp
-            hidden_states = self.layers_2[layer_index](hidden_states)
+        # for layer_index, layer in enumerate(self.layers):
+        #     temp = hidden_states
+        #     # hidden_states = layer(hidden_states, attention_mask)
+        #     # hidden_states = self.layers_2[layer_index](hidden_states)
+        #     # hidden_states = F.relu(hidden_states) + temp
+        #     hidden_states = layer(hidden_states, attention_mask, mapping)
+        #     if self.use_dropout:
+        #         hidden_states = self.dropout(hidden_states)
+        #     hidden_states = F.relu(hidden_states)
+        #     hidden_states = hidden_states + temp
+        #     hidden_states = self.layers_2[layer_index](hidden_states)
 
         # if self.use_dropout:
         #     hidden_states = self.dropout(hidden_states)

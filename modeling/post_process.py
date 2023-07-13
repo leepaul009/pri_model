@@ -75,11 +75,11 @@ class PostProcess(nn.Module):
         self.output_dir = path
 
     def display(self, metrics, epoch, step=None, lr=None, time=None):
-        if lr is not None:
-            # print("Epoch = {}, Step = {}".format(epoch, step))
-            NotImplemented
-        else:
-            print("**************** validation epoch {} ****************".format(epoch))
+        # if lr is not None:
+        #     # print("Epoch = {}, Step = {}".format(epoch, step))
+        #     NotImplemented
+        # else:
+        #     print("**************** validation epoch {} ****************".format(epoch))
         
         if 'reg_loss' not in metrics:
             print(metrics.keys())
@@ -119,8 +119,8 @@ class PostProcess(nn.Module):
                 np.savez(output_file, info=info)
 
 
-            print("validation loss = %2.4f, loss_logic = %2.4f, loss_reg = %2.4f, rvalue = %2.4f, pvalue = %2.8f, rrmse = %2.4f" % (
-                loss, loss_logic, loss_reg, rvalue, pvalue, rrmse))
+            print("validation epoch {}: loss = {:.4f}, loss_logic = {:.4f}, loss_reg = {:.4f}, rvalue = {:.4f}, pvalue = {:.4f}, rrmse = {:.4f}".format(
+                epoch, loss, loss_logic, loss_reg, rvalue, pvalue, rrmse))
             # print("gts: {} ".format(gts))
             # print("preds: {} ".format(preds))
 

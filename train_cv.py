@@ -20,7 +20,7 @@ from torch.nn.parallel import DistributedDataParallel
 
 from utilities.comm import get_world_size, get_rank, is_main_process, synchronize, all_gather, reduce_dict
 import utils
-from dataset.dataset_pri import PriDataset, PriDatasetExt
+from data.dataset_pri import PriDataset, PriDatasetExt
 
 from modeling.graphnet import GraphNet, PostProcess
 

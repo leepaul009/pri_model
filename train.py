@@ -20,7 +20,9 @@ from torch.nn.parallel import DistributedDataParallel
 
 from utilities.comm import get_world_size, get_rank, is_main_process, synchronize, all_gather, reduce_dict
 import utils
-from dataset.dataset_pri import PriDataset, PriDatasetExt
+
+from data.dataset_pri import PriDataset, PriDatasetExt
+from data.distributed_sampler import RepeatFactorTrainingSampler
 
 from modeling.graphnet import GraphNet
 from modeling.post_process import PostProcess
@@ -194,13 +196,13 @@ def train_one_epoch(model, train_dataloader, val_dataloader,
     optimizer.step()
     optimizer.zero_grad()
 
-    if is_main_process and step % 10 == 0:
+    if is_main_process and step % args.display_steps == 0:
       # print("epoch={} step={} loss={}".format(i_epoch, step, loss.item()))
       end_time = time.time()
       post_process.display(metrics, i_epoch, step, args.learning_rate, end_time - start_time)
       
-    # if is_main_process and step % save_iters == 0:
-    #   save_ckpt(model, optimizer, save_dir, i_epoch, step)
+    if is_main_process and step > 5000 and step % save_iters == 0:
+      save_ckpt(model, optimizer, save_dir, i_epoch, step)
 
   # do eval after an epoch training
   if args.do_eval:
@@ -231,8 +233,11 @@ def main():
   args: utils.Args = parser.parse_args()
   preprocess(args)
 
-  torch.cuda.set_device(args.local_rank)
-  device = torch.device('cuda', args.local_rank)
+  if args.use_cpu:
+    device = torch.device('cpu')
+  else:
+    torch.cuda.set_device(args.local_rank)
+    device = torch.device('cuda', args.local_rank)
 
   distributed = False
   if distributed:
@@ -241,7 +246,8 @@ def main():
 
   config = dict()
   model = GraphNet(config, args)
-  model = model.cuda()
+  # model = model.cuda()
+  model = model.to(device)
 
   post_process = PostProcess(args.output_dir)
     
@@ -269,7 +275,7 @@ def main():
 
   # use 20 epoch from init_lr to 0
   lr_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
-    optimizer, T_max=20)
+    optimizer, T_max=50)
   
   
   if args.do_test:
@@ -292,7 +298,14 @@ def main():
       train_dataset = PriDatasetExt(args, args.data_dir, args.train_batch_size)
     else:
       train_dataset = PriDataset(args, args.data_dir, args.train_batch_size)
-    train_sampler = DistributedSampler(train_dataset, num_replicas=get_world_size(), rank=get_rank())
+
+
+    if args.use_repeat_sampler:
+      print("use RepeatFactorTrainingSampler")
+      train_sampler = RepeatFactorTrainingSampler(train_dataset.ex_list, repeat_thresh=0.5)
+    else:
+      train_sampler = DistributedSampler(train_dataset, num_replicas=get_world_size(), rank=get_rank())
+    
     train_dataloader = torch.utils.data.DataLoader(
       train_dataset, sampler=train_sampler,
       batch_size=args.train_batch_size // get_world_size(),
