@@ -81,6 +81,17 @@ def main2():
 
 
 
+def lr_decay(args, step, optimizer):
+  steps_update_lr = 5000
+  cur_lr = None
+  for p in optimizer.param_groups:
+    cur_lr = p['lr']
+    break
+
+  if step > 1 and step % steps_update_lr == 0 and cur_lr > 0.0005:
+    for p in optimizer.param_groups:
+      p['lr'] *= 0.9
+
 def learning_rate_decay(args, i_epoch, optimizer, optimizer_2=None):
   # utils.i_epoch = i_epoch
 
@@ -226,6 +237,7 @@ def preprocess(args):
   if not os.path.exists(save_dir):
     print("Directory {} doesn't exist, create a new.".format(save_dir))
     os.makedirs(save_dir)
+  args.output_dir = save_dir
 
 def main():
   parser = argparse.ArgumentParser()

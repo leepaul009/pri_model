@@ -71,8 +71,8 @@ class PostProcess(nn.Module):
 
         return metrics
     
-    def set_output_dir(self, path):
-        self.output_dir = path
+    # def set_output_dir(self, path):
+    #     self.output_dir = path
 
     def display(self, metrics, epoch, step=None, lr=None, time=None):
         # if lr is not None:

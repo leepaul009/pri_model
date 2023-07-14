@@ -16,7 +16,7 @@ import utils
 
 from modeling.layer import KMersNet, Conv2d
 
-from preprocessing.protein_chemistry import list_atoms, max_num_atoms_in_aa
+from preprocessing.protein_chemistry import list_atoms, max_num_atoms_in_aa, max_num_prot_chm_feats
 
 from scipy.stats import linregress
 from sklearn import metrics as sklearn_metrics
@@ -251,7 +251,7 @@ class GraphNet(nn.Module):
         
         ################ prot chemistry layer ################
         if self.use_prot_chm:
-            self.prot_chm_dim = 37
+            self.prot_chm_dim = max_num_prot_chm_feats
             self.prot_chm_layer = nn.Linear(in_features=self.prot_chm_dim, 
                                             out_features=self.aa_out_dim, 
                                             bias=False)
