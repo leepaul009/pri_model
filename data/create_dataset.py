@@ -161,8 +161,8 @@ def process_dna_dataset(args, current_path):
   createDir(test_dir)
 
   print("begin to write files")
-  for i, data_compress in tqdm(enumerate(list_data_by_prot)):
-    df, motId = zlib.decompress(data_compress)
+  for i, instance in tqdm(enumerate(list_data_by_prot)):
+    df, motId = instance
     df.loc[:, 'dG'] = df['dG'].apply(
       lambda x : (x - vmean ) / (vstd + 1e-5) )
     
