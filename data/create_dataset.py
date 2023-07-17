@@ -94,10 +94,10 @@ def process_dna_dataset(args, current_path):
           break
         instance = get_instance(data_item)
         if instance is not None:
-          data_compress = zlib.compress(
-            pickle.dumps(instance))
-          res.append(data_compress)
-          queue_res.put(data_compress)
+          # data_compress = zlib.compress(
+          #   pickle.dumps(instance))
+          res.append(instance)
+          queue_res.put(instance)
         else:
           queue_res.put(None)
     
@@ -139,8 +139,9 @@ def process_dna_dataset(args, current_path):
 
   ### done
   all_vals = list()
-  for data_compress in list_data_by_prot:
-    df, _ = zlib.decompress(data_compress)
+  for instance in list_data_by_prot:
+    # df, _ = zlib.decompress(data_compress)
+    df, _ = instance
     all_vals.append(df['dG'].values)  
   all_vals = np.concatenate(all_vals).reshape(-1)
 
