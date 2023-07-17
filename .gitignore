@@ -1,7 +1,8 @@
 # folders
-data
+dataset
 output
 output_*/
+dna_dataset_task_*/
 .vscode
 
 *.npz
