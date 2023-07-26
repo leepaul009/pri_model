@@ -31,56 +31,6 @@ torch.backends.cudnn.enabled = True
 torch.backends.cudnn.benchmark = True 
 
 
-def main2():
-
-  list_datasets = [
-    'train',
-    'validation_70',
-    'validation_homology',
-    'validation_topology',
-    'validation_none',
-    'test_70',
-    'test_homology',
-    'test_topology',
-    'test_none',
-    ]
-
-  list_dataset_names = [
-    'Train',
-    'Validation (70\%)',
-    'Validation (Homology)',
-    'Validation (Topology)',
-    'Validation (None)',
-    'Test (70\%)',
-    'Test (Homology)',
-    'Test (Topology)',
-    'Test (None)'
-    ]
-
-  pipeline = pipelines.ScanNetPipeline(
-    with_atom=True,
-    aa_features='sequence',
-  )
-
-  list_dataset_locations = ['datasets/PPBS/labels_%s.txt'% dataset 
-    for dataset in list_datasets]
-  dataset_table = pd.read_csv('datasets/PPBS/table.csv',sep=',')
-
-  list_inputs = []
-  list_outputs = []
-  list_weights = []
-
-  for dataset,dataset_name,dataset_location in zip(
-    list_datasets,list_dataset_names,list_dataset_locations):
-    
-    # List of residue-wise labels
-    (list_origins,# List of chain identifiers (e.g. [1a3x_A,10gs_B,...])
-    list_sequences,# List of corresponding sequences.
-    list_resids,#List of corresponding residue identifiers.
-    list_labels)  = dataset_utils.read_labels(dataset_location)
-
-
-
 def lr_decay(args, step, optimizer):
   steps_update_lr = 5000
   cur_lr = None
@@ -92,33 +42,13 @@ def lr_decay(args, step, optimizer):
     for p in optimizer.param_groups:
       p['lr'] *= 0.9
 
-def learning_rate_decay(args, i_epoch, optimizer, optimizer_2=None):
-  # utils.i_epoch = i_epoch
 
+def learning_rate_decay(args, i_epoch, optimizer, optimizer_2=None):
   epoch_update_lr = 100
   if i_epoch > 0 and i_epoch % epoch_update_lr == 0:
     for p in optimizer.param_groups:
       p['lr'] *= 0.75
 
-  # if 'set_predict' in args.other_params:
-  #     if not hasattr(args, 'set_predict_lr'):
-  #         args.set_predict_lr = 1.0
-  #     else:
-  #         args.set_predict_lr *= 0.9
-  #     if i_epoch > 0 and i_epoch % 5 == 0:
-  #         for p in optimizer.param_groups:
-  #             p['lr'] *= 0.3
-  #     if 'complete_traj-3' in args.other_params:
-  #         assert False
-  # else:
-  #     if i_epoch > 0 and i_epoch % 5 == 0:
-  #         for p in optimizer.param_groups:
-  #             p['lr'] *= 0.3
-
-  #     if 'complete_traj-3' in args.other_params:
-  #         if i_epoch > 0 and i_epoch % 5 == 0:
-  #             for p in optimizer_2.param_groups:
-  #                 p['lr'] *= 0.3
 
 def save_ckpt(model, opt, save_dir, epoch, iter):
   save_dir = os.path.join(save_dir, "checkpoint")
@@ -182,25 +112,15 @@ def val(model, dataloader, post_process, epoch, device, args):
 def train_one_epoch(model, train_dataloader, val_dataloader, 
                     optimizer, lr_scheduler,
                     post_process, device, i_epoch, args):
-  
   save_iters = 1000
   save_dir = args.output_dir
   metrics = dict()
-  
   for step, batch in enumerate(train_dataloader):
-    # print("step {}, batch.type={}".format( step, type(batch) ))
-    # if (isinstance(batch, list)):
-    #   # batch has 64 inputs(list of dict)
-    #   print("batch size={}".format( len(batch) ))
-
-    # break when meeting max iter
-
     start_time = time.time()
 
     loss, pred, loss_output = model(batch, device)
     post_out = post_process(loss_output)
     post_process.append(metrics, post_out)
-    # del DE
     loss = loss.type(torch.float32)
     loss.backward()
 
@@ -208,7 +128,6 @@ def train_one_epoch(model, train_dataloader, val_dataloader,
     optimizer.zero_grad()
 
     if is_main_process and step % args.display_steps == 0:
-      # print("epoch={} step={} loss={}".format(i_epoch, step, loss.item()))
       end_time = time.time()
       post_process.display(metrics, i_epoch, step, args.learning_rate, end_time - start_time)
       
@@ -255,7 +174,6 @@ def main():
   if distributed:
       torch.distributed.init_process_group(backend="nccl", init_method="env://",)
 
-
   config = dict()
   model = GraphNet(config, args)
   # model = model.cuda()
@@ -275,14 +193,11 @@ def main():
   start_epoch = 0
   if args.resume:
     ckpt_path = args.resume_path
-    # if not os.path.isabs(ckpt_path):
-    #     ckpt_path = os.path.join(config["save_dir"], ckpt_path)
     ckpt = torch.load(ckpt_path, map_location=lambda storage, loc: storage)
     load_pretrain(model, ckpt["state_dict"])
     start_epoch = ckpt["epoch"] + 1
     optimizer.load_state_dict(ckpt["opt_state"])
     print("load ckpt from {} and train from epoch {}".format(ckpt_path, start_epoch))
-
 
 
   # use 20 epoch from init_lr to 0
@@ -295,7 +210,7 @@ def main():
       test_dataset = PriDatasetExt(args, args.data_dir_for_test, args.test_batch_size)
     else:
       test_dataset = PriDataset(args, args.data_dir_for_test, args.test_batch_size)
-    # sampler = DistributedSampler(dataset, num_replicas=get_world_size(), rank=get_rank())
+
     test_sampler = SequentialSampler(test_dataset)
     test_dataloader = torch.utils.data.DataLoader(
       test_dataset, sampler=test_sampler,
@@ -327,7 +242,7 @@ def main():
       val_dataset = PriDatasetExt(args, args.data_dir_for_val, args.eval_batch_size)
     else:
       val_dataset = PriDataset(args, args.data_dir_for_val, args.eval_batch_size)
-    # sampler = DistributedSampler(dataset, num_replicas=get_world_size(), rank=get_rank())
+
     val_sampler = SequentialSampler(val_dataset)
     val_dataloader = torch.utils.data.DataLoader(
       val_dataset, sampler=val_sampler,

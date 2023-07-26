@@ -220,6 +220,30 @@ Dataset/pri_data/dna_dataset/_dataset
 nohup python -u train.py  --data_name hox_data --data_dir dataset/dna_dataset/_dataset/train --data_dir_for_val dataset/dna_dataset/_dataset/val --core_num 8 --output_dir dna_dataset_task_01 --train_batch_size 48 --eval_batch_size 48 --learning_rate 0.001 --num_train_epochs 20 --do_eval --display_steps 250    >dna_dataset_task_01.log 2>&1 &
 
 
+nohup python -u train.py  --data_name hox_data --data_dir dataset/dna_dataset/_dataset/train --data_dir_for_val dataset/dna_dataset/_dataset/val --core_num 8 --output_dir dna_dataset_task_02 --train_batch_size 48 --eval_batch_size 48 --learning_rate 0.001 --num_train_epochs 20 --do_eval --display_steps 250 --use_prot_chm_feature    >dna_dataset_task_02.log 2>&1 &
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+nohup python -u train.py --data_dir dataset/tmp_data/simple/train --data_dir_for_val dataset/tmp_data/simple/val --core_num 8 --output_dir test_03 --train_batch_size 24 --eval_batch_size 4 --learning_rate 0.001 --num_train_epochs 300 --do_eval --hidden_size 128 --use_prot_chm_feature --pwm_type hmm_pssm  >test_03.log 2>&1 &
+
+
+nohup python -u train.py --data_dir dataset/tmp_data/simple/train --data_dir_for_val dataset/tmp_data/simple/val --core_num 8 --output_dir test_04 --train_batch_size 24 --eval_batch_size 4 --learning_rate 0.001 --num_train_epochs 30 --do_eval --hidden_size 128 --use_prot_chm_feature --pwm_type hmm_pssm  >test_04.log 2>&1 &
+
+
+
+
 
 ```
 

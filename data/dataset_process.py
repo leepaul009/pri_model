@@ -139,27 +139,34 @@ def getProtChemFeature(dir, input_complex, args):
   f = os.path.join(dir, f)
   df = pd.read_csv(f, sep='\t')
   
-  cols = ["Steric_parameter", "polarizability",	"volume",	"hydrophobicity",	"isoelectric point",	
-               "Helix probability",	"Sheet probability",	"CHAM820101",	"KLEP840101",	"RADA880108"]
-  chem_feat = df[cols].values # (num_aa, 10)
+  cols = ["Steric_parameter", "polarizability",	"volume",	
+          "hydrophobicity",	"isoelectric point",	
+          "Helix probability",	"Sheet probability"]
+  chem_feat = df[cols].values # (num_aa, 7)
   
-  cols = ["b2btool_backbone",	"b2btool_sidechain",	"provean"]
-  flex_feat = df[cols].values # (num_aa, 3)
+  return chem_feat
+
+  # cols = ["Steric_parameter", "polarizability",	"volume",	"hydrophobicity",	"isoelectric point",	
+  #              "Helix probability",	"Sheet probability",	"CHAM820101",	"KLEP840101",	"RADA880108"]
+  # chem_feat = df[cols].values # (num_aa, 10)
   
-  cols = df.columns[df.columns.str.contains("propensity")]
-  disorder_feat = df[cols].values # (num_aa, 5)
+  # cols = ["b2btool_backbone",	"b2btool_sidechain",	"provean"]
+  # flex_feat = df[cols].values # (num_aa, 3)
   
-  cols = [x for x in df.keys() if 'spot_1d' in x and 'onehot' not in x]
-  spot1d_feat = df[cols].values # (num_aa, 19)
+  # cols = df.columns[df.columns.str.contains("propensity")]
+  # disorder_feat = df[cols].values # (num_aa, 5)
   
-  # return chem_feat, flex_feat, disorder_feat, spot1d_feat
-  all_feat = np.concatenate([chem_feat, flex_feat, disorder_feat, spot1d_feat], axis=-1)
+  # cols = [x for x in df.keys() if 'spot_1d' in x and 'onehot' not in x]
+  # spot1d_feat = df[cols].values # (num_aa, 19)
   
-  return all_feat # (num_aa, 37)
+  # # return chem_feat, flex_feat, disorder_feat, spot1d_feat
+  # all_feat = np.concatenate([chem_feat, flex_feat, disorder_feat, spot1d_feat], axis=-1)
+  
+  # return all_feat # (num_aa, 37)
   
 
 
-def getProtChemFeature2(prot_chm_df, input_complex, args):
+def getProtChemFeature_7s(prot_chm_df, input_complex, args):
   p_seqs = input_complex["protein_sequence"] # string
   cols = ["Steric_parameter", "polarizability",	"volume",	
           "hydrophobicity",	"isoelectric point",	

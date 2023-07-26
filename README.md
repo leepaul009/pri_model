@@ -93,3 +93,39 @@ python train.py --do_test --data_dir_for_test dataset/pri_data/test --core_num 8
 nohup python -u  train.py --data_name hox_data --data_dir dataset/hox_data/train --data_dir_for_val dataset/hox_data/val --core_num 8 --output_dir output_hox_01 --train_batch_size 280 --num_train_epochs 300 --do_eval  >train_hox_01.log 2>&1 &
 
 ```
+
+
+
+```
+### step1. put following files and directory under 'dataset/_datasets/cluster_res'
+### cluster files:
+├── protein_wt_cluster.tsv 
+├── dsDNA_80_cluster.txt
+├── dsRNA_80_cluster.txt
+├── ssDNA_80_cluster.txt
+├── ssRNA_80_cluster.txt
+### main dataset:
+├── seq_dg_v02.txt ### all
+├── wt_v02.tsv ### w-type
+### similarity files:
+├── similarity
+│   ├── dsdna_dist_230703.txt
+│   ├── dsdna_dist_230710.txt
+│   ├── dsrna_dist_230703.txt
+│   ├── dsrna_dist_230710.txt
+│   ├── protein_dist_230703.txt
+│   ├── protein_dist_230710.txt
+│   ├── ssdna_dist_230703.txt
+│   ├── ssdna_dist_230710.txt
+│   ├── ssrna_dist_230703.txt
+│   └── ssrna_dist_230710.txt
+
+### step2. edit data/data_cluster_analysis.py files:
+## edit line 28 of "param_load = False", code will compute distance output file,
+## if you set "param_load = True", code will try to read distance output file (if you do not have, error reported)
+## edit line 31 of " output_dir = 'Your output dir' "
+
+## then you can run:
+$ python data/data_cluster_analysis.py
+## then you can file train.csv and test.csv in 'Your output dir'
+```

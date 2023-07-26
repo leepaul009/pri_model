@@ -16,15 +16,15 @@ import utils
 
 from modeling.layer import KMersNet, Conv2d
 
-from preprocessing.protein_chemistry import list_atoms, max_num_atoms_in_aa, max_num_prot_chm_feats
+from preprocessing.protein_chemistry import list_atoms, max_num_atoms_in_aa, max_num_prot_chm_feats, \
+    pwm_embeding_dims_by_type, is_pwm_type_valid
 
 from scipy.stats import linregress
 from sklearn import metrics as sklearn_metrics
 
 # post_preprocessor
 
-def is_pwm_type_valid(pwm_type):
-    return pwm_type in ['hmm', 'pssm', 'psfm']
+
 
 class SubGraph(nn.Module):
     # config:
@@ -237,9 +237,8 @@ class GraphNet(nn.Module):
 
         ### pwm embedding
         if is_pwm_type_valid(self.pwm_type):
-            pwm_emd_dim = {'hmm': 30, 'pssm': 20, 'psfm': 20}
             self.aa_pwm_layer = nn.Linear(
-                in_features=pwm_emd_dim[self.pwm_type], 
+                in_features=pwm_embeding_dims_by_type[self.pwm_type], 
                 out_features=self.aa_out_dim, 
                 bias=False)
             self.aa_pwm_layer = TimeDistributed(self.aa_pwm_layer)
@@ -517,6 +516,7 @@ class GraphNet(nn.Module):
         # x = self.dropout(x)
         x = self.na_seq_norm(x)
         
+        other_embedding = None
         if is_pwm_type_valid(self.pwm_type) and aa_pwm is not None:
             pwm_list = []
             for i in range(batch_size):
@@ -528,7 +528,8 @@ class GraphNet(nn.Module):
             # aa_pwm_embedding = self.dropout(aa_pwm_embedding)
             aa_pwm_embedding = self.na_pwm_norm(aa_pwm_embedding)
             # aa_pwm_embedding = F.relu(aa_pwm_embedding)
-            x = torch.cat([x, aa_pwm_embedding], dim=-1) # [bs, max_n_aa, h/2]
+            # x = torch.cat([x, aa_pwm_embedding], dim=-1) # [bs, max_n_aa, h/2]
+            other_embedding = aa_pwm_embedding
 
         if self.use_prot_chm:
             chm_list = []
@@ -541,8 +542,15 @@ class GraphNet(nn.Module):
             # chm_embedding = self.dropout(chm_embedding)
             chm_embedding = self.na_chm_norm(chm_embedding)
             # chm_embedding = F.relu(chm_embedding)
-            x = torch.cat([x, chm_embedding], dim=-1) # (bs, max(num_aa), h/2)
-            
+            # x = torch.cat([x, chm_embedding], dim=-1) # (bs, max(num_aa), h/2)
+            if other_embedding is not None:
+                other_embedding += chm_embedding
+            else:
+                other_embedding = chm_embedding
+        
+        if other_embedding is not None:
+            x = torch.cat([x, other_embedding], dim=-1)
+        
         x = F.relu(x)
         return x, lengths
 

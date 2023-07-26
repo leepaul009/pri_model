@@ -18,9 +18,10 @@ import pandas as pd
 import utils
 from preprocessing.protein_chemistry import list_aa, \
   aa_to_index, dictionary_covalent_bonds, list_atoms, atom_type_mass, \
-  nucleotide_to_index, max_num_atoms_in_aa, max_num_prot_chm_feats
+  nucleotide_to_index, max_num_atoms_in_aa, max_num_prot_chm_feats, \
+  pwm_embeding_dims_by_type, is_pwm_type_valid
   
-from data.dataset_process import processBinLabel, computeBin, getProtChemFeature, getProtChemFeature2
+from data.dataset_process import processBinLabel, computeBin, getProtChemFeature, getProtChemFeature_7s
 
 
 
@@ -61,7 +62,7 @@ def process_sequence_without_coordinates(chain):
   return np.array(chain_by_int)
 
 
-def get_pwm_feature(pwm_dir, input_complex):
+def get_pwm_feature(type, pwm_dir, input_complex):
 
   protein_index = input_complex['protein_index']
 
@@ -84,7 +85,22 @@ def get_pwm_feature(pwm_dir, input_complex):
   iend = 1+num_hmm_cols+num_pssm_cols+num_psfm_cols
   psfm_np_array = pwm_df.iloc[:, ibeg:iend].values
 
-  return hmm_np_array, pssm_np_array, psfm_np_array
+  # return hmm_np_array, pssm_np_array, psfm_np_array
+
+  aa_pwm_feature = None
+  if type == 'hmm':
+    aa_pwm_feature = hmm_np_array # (num_aa, 30)
+  elif type == 'pssm':
+    aa_pwm_feature = pssm_np_array # (num_aa, 20)
+  elif type == 'psfm':
+    aa_pwm_feature = psfm_np_array # (num_aa, 20)
+  elif type == 'hmm_pssm':
+    aa_pwm_feature = np.concatenate([hmm_np_array, pssm_np_array], axis=-1) # (num_aa, 50)
+  elif type == 'all':
+    aa_pwm_feature = np.concatenate([hmm_np_array, pssm_np_array, psfm_np_array], axis=-1) # (num_aa, 70)
+  
+  return aa_pwm_feature
+
 
 
 def get_nc_chemistry(na_jobid, input_nucleotide, fdir):
@@ -170,27 +186,13 @@ def pri_get_instance(input_complex, args, other_inputs):
 
   ################# get pwm features #################
   pwm_dir = 'dataset/pwm_data/pwm' # TODO: move to param
-  hmm_feature = None
-  pssm_feature = None
-  psfm_feature = None
-  if args.pwm_type in ['hmm', 'pssm', 'psfm']:
-    hmm_feature, pssm_feature, psfm_feature = \
-                get_pwm_feature(pwm_dir, input_complex)
-  
-  if args.pwm_type == 'hmm':
-    aa_pwm_feature = hmm_feature # (num_aa, 30)
-  elif args.pwm_type == 'pssm':
-    aa_pwm_feature = pssm_feature # (num_aa, 20)
-  elif args.pwm_type == 'psfm':
-    aa_pwm_feature = psfm_feature # (num_aa, 20)
-  else:
-    aa_pwm_feature = None
+  aa_pwm_feature = get_pwm_feature(args.pwm_type, pwm_dir, input_complex)
 
   ################# get chemistry features #################
   aa_chm_feature = None
   if args.use_prot_chm_feature:
     p_chemfeat_dir = 'dataset/protein_all_feas/'
-    aa_chm_feature = getProtChemFeature(p_chemfeat_dir, input_complex, args) # (num_aa, 37)
+    aa_chm_feature = getProtChemFeature(p_chemfeat_dir, input_complex, args) # (num_aa, 7)
 
 
   ################# get nucleotide features #################
@@ -231,7 +233,7 @@ def pri_get_instance(input_complex, args, other_inputs):
   mapping = {}
   mapping.update(dict(
     aa_attributes = aa_attributes,  # (num_aa, 20)
-    aa_pwm = aa_pwm_feature,        # (num_aa, 20 or 30)
+    aa_pwm = aa_pwm_feature,        # (num_aa, ?)
     aa_chm = aa_chm_feature,        # (num_aa, 37)
     # aa_indices = aa_indices, # (num_aa,)
     # atom_attributes = atom_attributes, # list[np.ndarray=(num_atoms,1)]
@@ -298,7 +300,7 @@ def hox_get_instance(input_complex, args, other_inputs):
   if args.use_prot_chm_feature:
     assert prot_chm_df is not None
     p_chemfeat_dir = 'dataset/protein_all_feas/'
-    aa_chm_feature = getProtChemFeature2(prot_chm_df, input_complex, args) # (num_aa, 7)
+    aa_chm_feature = getProtChemFeature_7s(prot_chm_df, input_complex, args) # (num_aa, 7)
 
 
   ################# get nucleotide features #################

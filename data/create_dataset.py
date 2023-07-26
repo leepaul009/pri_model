@@ -138,16 +138,17 @@ def process_dna_dataset(args, current_path):
 
 
   ### done
-  all_vals = list()
-  for instance in list_data_by_prot:
-    # df, _ = zlib.decompress(data_compress)
-    df, _ = instance
-    all_vals.append(df['dG'].values)  
-  all_vals = np.concatenate(all_vals).reshape(-1)
+  # all_vals = list()
+  # for instance in list_data_by_prot:
+  #   # df, _ = zlib.decompress(data_compress)
+  #   df, _ = instance
+  #   all_vals.append(df['dG'].values)  
+  # all_vals = np.concatenate(all_vals).reshape(-1)
 
-  vmean, vstd = all_vals.mean(), all_vals.std()
-  # vmean = 4834.18
-  # vstd = 112976855.02
+  # vmean, vstd = all_vals.mean(), all_vals.std()
+  # print("vmean={}, vstd={}".format(vmean, vstd))
+  vmean = 4834.1884
+  vstd = 10629.0571
 
   # G_NUM_TEST = 0.2
   # G_NUM_VAL = 0.2

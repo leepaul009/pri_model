@@ -12,6 +12,15 @@ max_num_atoms_in_aa = 15
 
 ### protein
 
+pwm_embeding_dims_by_type = {
+    'hmm': 30, 'pssm': 20, 'psfm': 20,
+    'hmm_pssm': 50, 
+    'all': 70}
+
+def is_pwm_type_valid(pwm_type):
+    return pwm_type in list(pwm_embeding_dims_by_type.keys())
+
+
 list_atoms_types = ['C', 'O', 'N', 'S']  # H
 VanDerWaalsRadii = np.array([1.70, 1.52, 1.55, 1.80])  # 1.20
 

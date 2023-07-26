@@ -25,7 +25,7 @@ def similar(a, b):
 ###########################################################################################
 
 
-param_load = True
+param_load = False
 # data_root = '../dataset/_datasets/cluster_res'
 data_root = 'dataset/_datasets/cluster_res'
 output_dir = 'out_v01'
@@ -515,7 +515,7 @@ def splitData(cand_cls, df, mDistAll, cls2id, id2cls, cls2size, cls2expIds):
   return test_cls_expIds
 
 
-def splitData2(cand_cls, df, mDistAll, cls2id, id2cls, cls2size, cls2expIds):
+def splitDataByRandomCls(cand_cls, df, mDistAll, cls2id, id2cls, cls2size, cls2expIds):
 
   cur_ueids = np.unique(df['key_complex'].values)
   uniq_clss = np.unique(df['base_class'].values)
@@ -533,19 +533,65 @@ def splitData2(cand_cls, df, mDistAll, cls2id, id2cls, cls2size, cls2expIds):
   print("collect {} test items".format(len(test_cls_expIds)))
   return test_cls_expIds
 
-ddna_test_cls_expIds = splitData2(candidate_cls, map_naType2df['dsDNA'], mDist_cls, 
+def splitDataByRandomClsWithThreshold(cand_cls, df, mDistAll, cls2id, id2cls, cls2size, cls2expIds):
+  '''
+  df: df of this na type
+  mDistAll:
+  cls2id: map from cluster to dist mat index
+  '''
+  cur_ueids = np.unique(df['key_complex'].values)
+  whole_sz = len(cur_ueids)
+  n_test = np.ceil(whole_sz * 0.25)
+  
+
+  uniq_clss = np.unique(df['base_class'].values)
+  # local mids for dataframe of current nc type
+  local_mids = np.array( [cls2id[c] for c in uniq_clss] )
+  local_dist = mDistAll[local_mids]
+  sorted_indices = local_dist.argsort()
+  sorted_mids = local_mids[sorted_indices]
+  sorted_cls = np.array( [id2cls[i] for i in sorted_mids] )
+
+  sz_cls = int(len(sorted_cls) / 3.)
+  sorted_cls_rank_A = sorted_cls[:sz_cls] # 33% cls with big dist
+  sorted_cls_rank_B = sorted_cls[sz_cls:] # 67% cls with small dist
+
+  ### get data size in rank A
+  data_sz_rank_A = np.sum([len(cls2expIds[c]) for c in sorted_cls_rank_A])
+  n_test_rank_A = int(data_sz_rank_A * 0.67)
+
+  test_cls_expIds = np.empty((0), np.int64)
+  ### randomly select cls from rank A
+  shuf_inds = np.random.permutation(len(sorted_cls_rank_A))
+  for i in shuf_inds:
+    cls = sorted_cls_rank_A[i]
+    test_cls_expIds = np.append(test_cls_expIds, cls2expIds[cls], axis=0)
+    if len(test_cls_expIds) > n_test_rank_A:
+      break
+  
+  shuf_inds = np.random.permutation(len(sorted_cls_rank_B))
+  for i in shuf_inds:
+    cls = sorted_cls_rank_B[i]
+    test_cls_expIds = np.append(test_cls_expIds, cls2expIds[cls], axis=0)
+    if len(test_cls_expIds) > n_test:
+      break
+
+  print("collect {} test items".format(len(test_cls_expIds)))
+  return test_cls_expIds
+
+ddna_test_cls_expIds = splitDataByRandomClsWithThreshold(candidate_cls, map_naType2df['dsDNA'], mDist_cls, 
   map_cls_to_mid, map_mid_to_cls, 
   map_cls2uniqSize, map_cls2uniqExpIds)
 
-drna_test_cls_expIds = splitData2(candidate_cls, map_naType2df['dsRNA'], mDist_cls, 
+drna_test_cls_expIds = splitDataByRandomClsWithThreshold(candidate_cls, map_naType2df['dsRNA'], mDist_cls, 
   map_cls_to_mid, map_mid_to_cls, 
   map_cls2uniqSize, map_cls2uniqExpIds)
 
-sdna_test_cls_expIds = splitData2(candidate_cls, map_naType2df['ssDNA'], mDist_cls, 
+sdna_test_cls_expIds = splitDataByRandomClsWithThreshold(candidate_cls, map_naType2df['ssDNA'], mDist_cls, 
   map_cls_to_mid, map_mid_to_cls, 
   map_cls2uniqSize, map_cls2uniqExpIds)
 
-srna_test_cls_expIds = splitData2(candidate_cls, map_naType2df['ssRNA'], mDist_cls, 
+srna_test_cls_expIds = splitDataByRandomClsWithThreshold(candidate_cls, map_naType2df['ssRNA'], mDist_cls, 
   map_cls_to_mid, map_mid_to_cls, 
   map_cls2uniqSize, map_cls2uniqExpIds)
 
