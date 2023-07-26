@@ -222,7 +222,7 @@ nohup python -u train.py  --data_name hox_data --data_dir dataset/dna_dataset/_d
 
 nohup python -u train.py  --data_name hox_data --data_dir dataset/dna_dataset/_dataset/train --data_dir_for_val dataset/dna_dataset/_dataset/val --core_num 8 --output_dir dna_dataset_task_02 --train_batch_size 48 --eval_batch_size 48 --learning_rate 0.001 --num_train_epochs 20 --do_eval --display_steps 250 --use_prot_chm_feature    >dna_dataset_task_02.log 2>&1 &
 
-
+python  train.py  --data_name hox_data --data_dir dataset/dna_dataset/_dataset/train --data_dir_for_val dataset/dna_dataset/_dataset/val --core_num 8 --output_dir dna_dataset_debug --train_batch_size 48 --eval_batch_size 48 --learning_rate 0.001 --num_train_epochs 20 --do_eval --display_steps 1 --step_lr --steps_update_lr 5 --use_prot_chm_feature
 
 
 

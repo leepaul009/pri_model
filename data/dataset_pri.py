@@ -373,7 +373,7 @@ class PriDataset(torch.utils.data.Dataset):
       for f in files:
         df = pd.read_csv(f, sep='\t')
         if args.debug:
-          debug_len = min(40, len(df))
+          debug_len = min(120, len(df))
           df = df.loc[:debug_len]
           print("debug mode: only use {} items".format(debug_len))
         num_lines += len(df)

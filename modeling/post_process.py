@@ -95,8 +95,8 @@ class PostProcess(nn.Module):
         ### print info
         if lr is not None:
             ### print in train process
-            print("epoch = {} step = {}, loss = {:.4f}, loss_logic = {:.4f}, loss_reg = {:.4f}, time = {:.2f}".format(
-                   epoch, step, loss, loss_logic, loss_reg, time))
+            print("epoch = {} step = {}, loss = {:.4f}, loss_logic = {:.4f}, loss_reg = {:.4f}, time = {:.2f}, lr = {:.5f}".format(
+                   epoch, step, loss, loss_logic, loss_reg, time, lr))
         else:
             rvalue, pvalue, rrmse = 0, 0, 0
             if "preds" in metrics and "gts" in metrics:

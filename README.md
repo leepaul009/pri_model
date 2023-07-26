@@ -90,12 +90,17 @@ python train.py --do_test --data_dir_for_test dataset/pri_data/test --core_num 8
 ### 4. pretrain with other data
 ```
 
-nohup python -u  train.py --data_name hox_data --data_dir dataset/hox_data/train --data_dir_for_val dataset/hox_data/val --core_num 8 --output_dir output_hox_01 --train_batch_size 280 --num_train_epochs 300 --do_eval  >train_hox_01.log 2>&1 &
+### --step_lr: to update lr by steps rather than epoch, use this tag with --steps_update_lr
+### --steps_update_lr: set the number of steps to update lr, ex. set 500 indicates we update lr every 500 steps 
+
+nohup python -u train.py --data_name hox_data --data_dir dataset/dna_dataset/_dataset/train --data_dir_for_val dataset/dna_dataset/_dataset/val --core_num 8 --output_dir {write your output dir} --train_batch_size 48 --eval_batch_size 48 --learning_rate {write your lr} --num_train_epochs {write your epoch} --do_eval --display_steps 250 --step_lr --steps_update_lr 5000 --use_prot_chm_feature    >{your log file}.log 2>&1 &
+
+
 
 ```
 
 
-
+### 5. split dataset
 ```
 ### step1. put following files and directory under 'dataset/_datasets/cluster_res'
 ### cluster files:

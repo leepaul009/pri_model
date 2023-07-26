@@ -148,8 +148,8 @@ class RepeatFactorTrainingSampler(Sampler):
       yield from itertools.islice(self._local_indices, start, None, self._world_size)
       # yield from self._local_indices
 
-    # def __len__(self):
-    #   return len(self._local_indices) / self._world_size
+    def __len__(self):
+      return len(self._local_indices) / self._world_size
 
     def _infinite_indices(self):
         g = torch.Generator()

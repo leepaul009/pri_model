@@ -238,7 +238,14 @@ def add_argument(parser):
                         help='use chemistry feature as input')
     parser.add_argument("--display_steps",
                         default=10,
-                        type=int)         
+                        type=int)
+    parser.add_argument("--step_lr",
+                        action='store_true',
+                        help='set to update lr by steps')
+    parser.add_argument("--steps_update_lr",
+                        default=2000,
+                        type=int,
+                        help='update lr by setting steps')   
 
 class Args:
     data_dir = None
@@ -319,6 +326,8 @@ class Args:
     use_prot_chm_feature = None
     use_repeat_sampler = None
     display_steps = None
+    step_lr = None
+    steps_update_lr = None
 
 args: Args = None
 

@@ -31,16 +31,21 @@ torch.backends.cudnn.enabled = True
 torch.backends.cudnn.benchmark = True 
 
 
-def lr_decay(args, step, optimizer):
-  steps_update_lr = 5000
+def lr_decay(args, all_steps, step, optimizer):
+  steps_update_lr = args.steps_update_lr
   cur_lr = None
   for p in optimizer.param_groups:
     cur_lr = p['lr']
     break
 
-  if step > 1 and step % steps_update_lr == 0 and cur_lr > 0.0005:
+  min_lr = 0.0001
+  # delta_lr = (args.learning_rate - min_lr) / (all_steps / steps_update_lr)
+  # print(( args.learning_rate - min_lr), (all_steps / steps_update_lr), delta_lr )
+
+  if step > 1 and step % steps_update_lr == 0 and cur_lr > min_lr:
     for p in optimizer.param_groups:
-      p['lr'] *= 0.9
+      p['lr'] *= 0.99
+    print("step {}, updated lr = {:.5f}, update lr every {} steps".format(step, p['lr'], steps_update_lr))
 
 
 def learning_rate_decay(args, i_epoch, optimizer, optimizer_2=None):
@@ -110,11 +115,14 @@ def val(model, dataloader, post_process, epoch, device, args):
 
 
 def train_one_epoch(model, train_dataloader, val_dataloader, 
-                    optimizer, lr_scheduler,
+                    optimizer,
                     post_process, device, i_epoch, args):
   save_iters = 1000
   save_dir = args.output_dir
   metrics = dict()
+
+  steps_sz = len(train_dataloader)
+
   for step, batch in enumerate(train_dataloader):
     start_time = time.time()
 
@@ -129,10 +137,14 @@ def train_one_epoch(model, train_dataloader, val_dataloader,
 
     if is_main_process and step % args.display_steps == 0:
       end_time = time.time()
-      post_process.display(metrics, i_epoch, step, args.learning_rate, end_time - start_time)
+      curr_lr = optimizer.param_groups[0]['lr']
+      post_process.display(metrics, i_epoch, step, curr_lr, end_time - start_time)
       
     if is_main_process and step > 5000 and step % save_iters == 0:
       save_ckpt(model, optimizer, save_dir, i_epoch, step)
+    
+    if args.step_lr:
+      lr_decay(args, steps_sz, step, optimizer)
 
   # do eval after an epoch training
   if args.do_eval:
@@ -201,8 +213,8 @@ def main():
 
 
   # use 20 epoch from init_lr to 0
-  lr_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
-    optimizer, T_max=50)
+  # lr_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+  #   optimizer, T_max=50)
   
   
   if args.do_test:
@@ -261,9 +273,9 @@ def main():
       # TODO: more function
       train_sampler.set_epoch(i_epoch)
       
-      train_one_epoch(model, train_dataloader, val_dataloader, optimizer, lr_scheduler, post_process, device, i_epoch, args)
+      train_one_epoch(model, train_dataloader, val_dataloader, optimizer, post_process, device, i_epoch, args)
 
-      lr_scheduler.step()
+      # lr_scheduler.step()
       
 
 if __name__ == '__main__':
