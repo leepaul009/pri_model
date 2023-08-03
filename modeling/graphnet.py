@@ -15,6 +15,9 @@ from axial_positional_embedding import AxialPositionalEmbedding
 import utils
 
 from modeling.layer import KMersNet, Conv2d
+from modeling.sub_graphnet import SubGraph
+from modeling.input_embedding import ProtEmbedding, NcEmbedding, \
+                                     ProtDeepEmbedding, NcDeepEmbedding
 
 from preprocessing.protein_chemistry import list_atoms, max_num_atoms_in_aa, max_num_prot_chm_feats, \
     pwm_embeding_dims_by_type, is_pwm_type_valid
@@ -24,144 +27,6 @@ from sklearn import metrics as sklearn_metrics
 
 # post_preprocessor
 
-
-
-class SubGraph(nn.Module):
-    # config:
-    #   depth:int, hidden_size:int, point_level-4-3:bool
-    def __init__(self, config, hidden_size, depth):
-        super(SubGraph, self).__init__()
-        
-        # depth = config['depth']
-        # hidden_size = config['hidden_size']
-        self.hidden_size = hidden_size
-        self.layer_0 = MLP(hidden_size)
-        self.layers = nn.ModuleList([GlobalGraph(hidden_size, num_attention_heads=2) 
-                                     for _ in range(depth)])
-        
-        # self.layers_2 = nn.ModuleList([LayerNorm(hidden_size) for _ in range(depth)])
-        if config['use_batch_norm']:
-            self.layers_2 = nn.ModuleList([nn.BatchNorm1d(hidden_size) for _ in range(depth)])
-        else:
-            self.layers_2 = nn.ModuleList([LayerNorm(hidden_size) for _ in range(depth)])
-            
-        #if config['point_level-4-3']:
-        # self.layer_0_again = MLP(hidden_size)
-        
-        if config['use_atom_embedding']:
-            atom_nfeatures = config['atom_nfeatures']
-            self.atom_emb_layer = nn.Embedding(num_embeddings=atom_nfeatures + 1, 
-                                               embedding_dim=atom_nfeatures)
-            max_seq_len = max_num_atoms_in_aa + 5
-            self.atom_pos_emb = AxialPositionalEmbedding(
-                dim = atom_nfeatures,
-                axial_shape = (math.ceil(max_seq_len / 64), 64))
-
-            self.layer_0 = MLP(atom_nfeatures, hidden_size)
-        
-        self.config = config
-        self.use_dropout = True
-        if self.use_dropout:
-            self.dropout = nn.Dropout(p=0.1)
-
-    # input_list:
-    #   case1: a chain, shape=residues*[atoms, hidden] (att along atoms)
-    #   case2: a batch of chains, shape=N*[residues, hidden] (att along residues)
-    # def forward1(self, input_list : List[Tensor]):
-    def forward(self, hidden_states : Tensor, lengths: List[int]):
-        batch_size = hidden_states.shape[0]
-        device = hidden_states.device
-        # input_list is list of tensor[nodes(atom/aa), hidden]
-        # merge with padding: hidden_states = [lines, max_nodes, hidden]
-        # hidden_states, lengths = utils.merge_tensors(input_list, device) # [aa, max_atoms, h]
-        # hidden_states = input.unsqueeze(-1) # (aa, max(num_atoms), h)
-        # hidden_size = hidden_states.shape[2] # here hidden size is input's
-        max_vector_num = hidden_states.shape[1] # do att along this dim
-
-        attention_mask = torch.zeros(
-            [batch_size, max_vector_num, max_vector_num], device=device) # atom case: [aa, max_atoms, max_atoms]
-        
-        if self.config['use_atom_embedding']:
-            # [max_atoms,1] => [max_atoms,12]
-            if hidden_states.type is not torch.long:
-                hidden_states = hidden_states.type(torch.long) # (aa, max(num_atoms))
-            hidden_states = self.atom_emb_layer(hidden_states) # (aa, max(num_atoms), e)
-            hidden_states += self.atom_pos_emb(hidden_states)
-
-        hidden_states = self.layer_0(hidden_states)
-        # hidden_states = self.layer_0_again(hidden_states) # (aa, max(num_atoms), h/2)
-        
-        # mask sequence dim as each item in batch has difference seq length
-        for i in range(batch_size):
-            assert lengths[i] > 0
-            attention_mask[i, :lengths[i], :lengths[i]].fill_(1)
-
-        for layer_index, layer in enumerate(self.layers):
-            temp = hidden_states
-            # hidden_states = layer(hidden_states, attention_mask)
-            # hidden_states = self.layers_2[layer_index](hidden_states)
-            # hidden_states = F.relu(hidden_states) + temp
-            hidden_states = layer(hidden_states, attention_mask)
-            if self.use_dropout:
-                hidden_states = self.dropout(hidden_states)
-            hidden_states = F.relu(hidden_states)
-            hidden_states = hidden_states + temp
-            
-            if self.config['use_batch_norm']:
-                orig_shape = hidden_states.shape
-                hidden_states = self.layers_2[layer_index](hidden_states.reshape(-1, orig_shape[-1]))
-                hidden_states = hidden_states.reshape(orig_shape)
-            else:         
-                hidden_states = self.layers_2[layer_index](hidden_states)
-        
-        if self.config['use_atom_embedding']:
-            hidden_states = torch.max(hidden_states, dim=1)[0] # (aa, h)
-        return hidden_states
-
-    def forward2(self, input : Tensor, lengths: Tensor):
-        device = input.device
-        batch_size = input.shape[0]
-        max_vector_num = input.shape[1]
-
-        attention_mask = torch.zeros(
-            [batch_size, max_vector_num, max_vector_num], device=device)
-        
-        if self.config['use_atom_embedding']:
-            # [max_atoms,1] => [max_atoms,12]
-            if input.type is not torch.long:
-                input = input.type(torch.long).squeeze(-1) # (N, seq,1) -> (N,seq,)
-            hidden_states = self.atom_emb_layer(input)
-            hidden_states += self.atom_pos_emb(hidden_states)
-
-        hidden_states = self.layer_0(hidden_states)
-
-        # if self.config['point_level-4-3']:
-        hidden_states = self.layer_0_again(hidden_states)
-        
-        # mask sequence dim as each item in batch has difference seq length
-        for i in range(batch_size):
-            # assert lengths[i] > 0
-            attention_mask[i, :lengths[i], :lengths[i]].fill_(1)
-
-        for layer_index, layer in enumerate(self.layers):
-            temp = hidden_states
-            hidden_states = layer(hidden_states, attention_mask)
-            hidden_states = F.relu(hidden_states)
-            hidden_states = hidden_states + temp
-            hidden_states = self.layers_2[layer_index](hidden_states)
-
-        # list_hidden_states = []
-        # for i in range(batch_size):
-        #     iend = lengths[i]
-        #     iend = max(1, iend)
-        #     hidden_states_per_aa = torch.max(hidden_states[i, :iend], dim=0)[0]
-        #     list_hidden_states.append(hidden_states_per_aa.unsqueeze(0))
-        # hidden_states = torch.cat(list_hidden_states)
-        
-        return torch.max(hidden_states, dim=1)[0]
-        # return hidden_states
-        # return torch.max(hidden_states, dim=1)[0], \
-        #        torch.cat(utils.de_merge_tensors(hidden_states, lengths))
 
 
 
@@ -210,96 +75,25 @@ class GraphNet(nn.Module):
         ##################################################################
         ### aa embedding
         ##################################################################
-        self.pwm_type = args.pwm_type
-        self.use_prot_chm = args.use_prot_chm_feature
-        max_seq_len = 6000
-
         ### update output dim
         aa_emb_hidden_dim = sub_graph_hidden_dim if self.use_sub_graph else hidden_size
-        self.aa_out_dim = aa_emb_hidden_dim
-        if is_pwm_type_valid(self.pwm_type):
-            self.aa_out_dim = aa_emb_hidden_dim // 2
-            print("use prot pwm feature, output dim = {}".format(self.aa_out_dim))
-        if self.use_prot_chm:
-            self.aa_out_dim = aa_emb_hidden_dim // 2
-            print("use prot chm feature, output dim = {}".format(self.aa_out_dim))
-        ### seq embedding
-        self.aa_input_features = 20
-        self.aa_seq_layer = nn.Linear(in_features=self.aa_input_features, 
-                                           out_features=self.aa_out_dim, 
-                                           bias=False)
-        self.aa_seq_layer = TimeDistributed(self.aa_seq_layer)
-        # position embedding
-        self.aa_pos_emb = AxialPositionalEmbedding(
-            dim = self.aa_out_dim,
-            axial_shape = (math.ceil(max_seq_len / 64), 64))
-        self.na_seq_norm = LayerNorm(self.aa_out_dim)
+        self.pwm_type = args.pwm_type
+        self.use_prot_chm = args.use_prot_chm_feature
+        if not args.use_deep_emb:
+          self.prot_layer = ProtEmbedding(args, aa_emb_hidden_dim)
+        else:
+          self.prot_layer = ProtDeepEmbedding(args, aa_emb_hidden_dim)
 
-        ### pwm embedding
-        if is_pwm_type_valid(self.pwm_type):
-            self.aa_pwm_layer = nn.Linear(
-                in_features=pwm_embeding_dims_by_type[self.pwm_type], 
-                out_features=self.aa_out_dim, 
-                bias=False)
-            self.aa_pwm_layer = TimeDistributed(self.aa_pwm_layer)
-            # position embedding
-            self.aa_pwm_pos_emb = AxialPositionalEmbedding(
-                dim = self.aa_out_dim,
-                axial_shape = (math.ceil(max_seq_len / 64), 64))
-            self.na_pwm_norm = LayerNorm(self.aa_out_dim)
-        
-        ################ prot chemistry layer ################
-        if self.use_prot_chm:
-            self.prot_chm_dim = max_num_prot_chm_feats
-            self.prot_chm_layer = nn.Linear(in_features=self.prot_chm_dim, 
-                                            out_features=self.aa_out_dim, 
-                                            bias=False)
-            self.prot_chm_layer = TimeDistributed(self.prot_chm_layer)
-            # position embedding
-            self.aa_chm_pos_emb = AxialPositionalEmbedding(
-                dim = self.aa_out_dim,
-                axial_shape = (math.ceil(max_seq_len / 64), 64))
-            self.na_chm_norm = LayerNorm(self.aa_out_dim)
-        
         ##################################################################
         ### nc embedding
         ##################################################################
-        self.use_nc_chm = args.use_chemistry
-        self.use_kmers = False
-        self.use_conv =  True
-        na_max_seq_len = 1024
-
         nc_emb_hidden_dim = sub_graph_hidden_dim if self.use_sub_graph else hidden_size
-        self.nc_out_dim = nc_emb_hidden_dim
-        if self.use_nc_chm:
-            self.nc_out_dim = nc_emb_hidden_dim // 2
-
-        if self.use_kmers:
-            self.kmers_net = KMersNet(base_channel=8, out_channels=self.nc_out_dim)
-        elif self.use_conv: ## TODO: fix as current not allowed
-            self.na_conv2d = Conv2d(1, 8, 
-                                    kernel_size=(3, 5),
-                                    bn=True, same_padding=True)
-            self.na_fc = nn.Linear(in_features=32, out_features=self.nc_out_dim, bias=False) 
-        else: ## TODO: fix as current not allowed
-            self.nc_seq_layer = nn.Linear(in_features=4, out_features=self.nc_out_dim, bias=False)
-            self.nc_seq_layer = TimeDistributed(self.nc_seq_layer)
-
-        self.na_norm = LayerNorm(self.nc_out_dim)
-        self.na_pos_emb = AxialPositionalEmbedding(
-            dim = self.nc_out_dim,
-            axial_shape = (math.ceil(na_max_seq_len / 64), 64))
-
-        if self.use_nc_chm:
-            # (num_nc, 1+9) => (num_nc, h/2)
-            self.nc_chm_dim = 10
-            self.nc_chm_layer = nn.Linear(in_features=self.nc_chm_dim, 
-                                          out_features=self.nc_out_dim, 
-                                          bias=False)
-            # self.na_comb_layer = nn.Linear(in_features=hidden_size, out_features=sub_graph_hidden_dim, bias=False)
-            # concat seq_feat and other_feat to (num_nc, h) => (num_nc, h/2)
-            # nn.init.kaiming_uniform_(self.nc_chm_layer.weight, a=1)
-            # nn.init.kaiming_uniform_(self.na_comb_layer.weight, a=1)
+        self.use_nc_chm = args.use_chemistry
+        if not args.use_deep_emb:
+          self.nc_layer = NcEmbedding(args, nc_emb_hidden_dim)
+        else:
+          self.nc_layer = NcDeepEmbedding(args, nc_emb_hidden_dim)
+        
 
         # TODO: if we 
         self.reg_head = nn.Linear(in_features=hidden_size * 2, out_features=hidden_size, bias=False)
@@ -492,111 +286,6 @@ class GraphNet(nn.Module):
 
         return list_emb
     
-    def aa_attribute_embeding(
-            self,
-            aa_attributes : List[np.ndarray], 
-            aa_pwm : List[np.ndarray],
-            aa_chm : List[np.ndarray],
-            device, batch_size) -> Tuple[Tensor, List[int]]:
-        """
-        compute embedding of amino acid
-        inputs:
-            aa_attributes: List[Tensor=(n_aa, 20)]
-        outputs:
-            Tensor=(N, max(num_aa), h/2)
-            List[int], each prot length
-        """
-        prot_list = []
-        for i in range(batch_size):
-            prot = torch.tensor(aa_attributes[i], device=device)
-            prot_list.append(prot)
-        x, lengths = utils.merge_tensors(prot_list, device=device) # [bs, max_n_aa, 20]
-        x = self.aa_seq_layer(x) # [bs, max_n_aa, 20]->[bs, max_n_aa, h/4]
-        x += self.aa_pos_emb(x)
-        # x = self.dropout(x)
-        x = self.na_seq_norm(x)
-        
-        other_embedding = None
-        if is_pwm_type_valid(self.pwm_type) and aa_pwm is not None:
-            pwm_list = []
-            for i in range(batch_size):
-                tensor = torch.tensor(aa_pwm[i], device=device)
-                pwm_list.append(tensor)
-            aa_pwm_embedding, _ = utils.merge_tensors(pwm_list, device=device) # [bs, max_n_aa, 30]
-            aa_pwm_embedding = self.aa_pwm_layer(aa_pwm_embedding) # [bs, max_n_aa, 30]->[bs, max_n_aa, h/4]
-            aa_pwm_embedding += self.aa_pwm_pos_emb(aa_pwm_embedding)
-            # aa_pwm_embedding = self.dropout(aa_pwm_embedding)
-            aa_pwm_embedding = self.na_pwm_norm(aa_pwm_embedding)
-            # aa_pwm_embedding = F.relu(aa_pwm_embedding)
-            # x = torch.cat([x, aa_pwm_embedding], dim=-1) # [bs, max_n_aa, h/2]
-            other_embedding = aa_pwm_embedding
-
-        if self.use_prot_chm:
-            chm_list = []
-            for i in range(batch_size):
-                tensor = torch.tensor(aa_chm[i], device=device)
-                chm_list.append(tensor)
-            chm_embedding, _ = utils.merge_tensors(chm_list, device=device) # (bs, max(num_aa), 37)
-            chm_embedding = self.prot_chm_layer(chm_embedding) # (bs, max(num_aa), h/4)
-            chm_embedding += self.aa_chm_pos_emb(chm_embedding)
-            # chm_embedding = self.dropout(chm_embedding)
-            chm_embedding = self.na_chm_norm(chm_embedding)
-            # chm_embedding = F.relu(chm_embedding)
-            # x = torch.cat([x, chm_embedding], dim=-1) # (bs, max(num_aa), h/2)
-            if other_embedding is not None:
-                other_embedding += chm_embedding
-            else:
-                other_embedding = chm_embedding
-        
-        if other_embedding is not None:
-            x = torch.cat([x, other_embedding], dim=-1)
-        
-        x = F.relu(x)
-        return x, lengths
-
-    def na_attribute_embeding(
-            self,
-            na_attributes : List[np.ndarray], 
-            na_other_attributes : List[np.ndarray], 
-            device, batch_size) -> Tuple[Tensor, List[int]]:
-        """
-        compute embedding of Nucleic Acids
-        inputs:
-            na_attributes: List[Tensor=(n_na, 4)]
-        outputs:
-            List[Tensor=(n_na, h/2)] 
-        """
-        input_list = []
-        for i in range(batch_size):
-            tensor = torch.tensor(na_attributes[i], device=device)
-            input_list.append(tensor)
-        x, lengths = utils.merge_tensors(input_list, device=device) # (bs, max(n_na), 4)
-
-        if self.use_kmers:
-            x = self.kmers_net(x.unsqueeze(1)) # (bs, 1, max(n_na), 4)->(bs, max(n_na), h)
-        elif self.use_conv:
-            x = self.na_conv2d(x.unsqueeze(1)) # (N,1,seq,4)=>(N,C,seq,4)
-            x = x.permute(0,2,1,3).contiguous() # (N,Seq,C,4)
-            x = x.view(x.shape[0], x.shape[1], x.shape[2]*x.shape[3]) # (N,Seq,C*4)
-            x = self.na_fc(x) # (N,Seq,h)
-            
-        else:
-            x = self.nc_seq_layer(x) # (bs, max(n_na), 4)->(bs, max(n_na), h)
-        x += self.na_pos_emb(x)
-
-        if self.use_nc_chm and na_other_attributes is not None:
-            chm_list = []
-            for i in range(batch_size):
-                tensor = torch.tensor(na_other_attributes[i], device=device)
-                chm_list.append(tensor)
-            chm_emb, _ = utils.merge_tensors(chm_list, device=device) # (bs, max(n_na), 10)
-            chm_emb = self.nc_chm_layer(chm_emb) # (bs, max(n_na), h/2)
-            x = torch.cat([x, chm_emb], dim=-1) # (bs, max(n_na), h)
-        
-        x = self.na_norm(x) # (N,Seq,h)
-        x = F.relu(x)
-        return x, lengths
-
     def forward(self, mapping: List[Dict], device):
         ### amino acid features
         aa_attributes = utils.get_from_mapping(mapping, 'aa_attributes') # List[np.ndarray=(num_aa, 20)]
@@ -613,9 +302,9 @@ class GraphNet(nn.Module):
         batch_size = len(aa_attributes)
 
         # compute embedding feature for amino acid sequence, (N, max(num_aa), h/2)
-        aa_embedding, prot_lengths = self.aa_attribute_embeding(aa_attributes, aa_pwm, aa_chm, device, batch_size)
+        aa_embedding, prot_lengths = self.prot_layer(aa_attributes, aa_pwm, aa_chm, device, batch_size)
         # compute embedding feature for DNA/RNA, (N, max(num_nc), h/2)
-        na_embedding, nc_lengths = self.na_attribute_embeding(na_attributes, na_other_attributes, device, batch_size)
+        na_embedding, nc_lengths = self.nc_layer(na_attributes, na_other_attributes, device, batch_size)
         
         ########################################################
         if self.use_sub_graph and not self.use_atom_graph:

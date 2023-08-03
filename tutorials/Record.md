@@ -244,6 +244,31 @@ nohup python -u train.py --data_dir dataset/tmp_data/simple/train --data_dir_for
 
 
 
+## test orig with new arch
+python train.py --debug --data_dir dataset/tmp_data/simple/train --data_dir_for_val dataset/tmp_data/simple/val --core_num 8 --output_dir debug --train_batch_size 8 --eval_batch_size 4 --learning_rate 0.001 --num_train_epochs 30 --do_eval --hidden_size 1024 --use_prot_chm_feature --pwm_type hmm_pssm
+
+## test deep emb with new arch
+python train.py --data_dir dataset/tmp_data/simple/train --data_dir_for_val dataset/tmp_data/simple/val --core_num 8 --output_dir debug --train_batch_size 8 --eval_batch_size 4 --learning_rate 0.001 --num_train_epochs 30 --do_eval --hidden_size 1024 --use_deep_emb --prot_emb_size 2560 --nc_emb_size 768
+
+
+
+## run deep emb with new arch
+##
+nohup python -u train.py --data_dir dataset/tmp_data/simple/train --data_dir_for_val dataset/tmp_data/simple/val --core_num 8 --output_dir deep_emb_01 --train_batch_size 8 --eval_batch_size 4 --learning_rate 0.0001 --num_train_epochs 50 --do_eval --hidden_size 1024 --use_deep_emb --prot_emb_size 2560 --nc_emb_size 768  >deep_emb_01.log 2>&1 &
+
+epoch = 7 step = 750, loss = 0.5202, loss_logic = 0.0000, loss_reg = 0.5202, time = 0.10, lr = 0.00010
+Iter (loss=X.XXX): 100%|██████████| 542/542 [00:11<00:00, 46.25it/s]
+validation epoch 7: loss = 0.8114, loss_logic = 0.0000, loss_reg = 0.8114, rvalue = 0.7136, pvalue = 0.0000, rrmse = 2.6378
+
+## --use_repeat_sampler
+
+##
+nohup python -u train.py --data_dir dataset/tmp_data/hard02/train --data_dir_for_val dataset/tmp_data/hard02/val --core_num 8 --output_dir deep_emb_04 --train_batch_size 8 --eval_batch_size 4 --learning_rate 0.0001 --num_train_epochs 200 --do_eval --hidden_size 1024 --use_deep_emb --prot_emb_size 2560 --nc_emb_size 768 --warmup_epoch 30 >deep_emb_04.log 2>&1 &
+
+
+
+
+
 
 ```
 

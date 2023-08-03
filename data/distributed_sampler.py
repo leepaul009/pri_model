@@ -83,9 +83,9 @@ class RepeatFactorTrainingSampler(Sampler):
         intervals = np.array([-4., -6., -8., -10., -12., -14., -16.], dtype=np.float32)
 
         bin_id_by_data = []
-        for data_dict in dataset_dicts:
-          instance = pickle.loads(zlib.decompress(data_dict))
-          bin_id = self._get_bin_id(intervals, instance["label"])
+        for label in dataset_dicts:
+        #   instance = pickle.loads(zlib.decompress(data_dict))
+          bin_id = self._get_bin_id(intervals, label)
           bin_id_by_data.append(bin_id)
           category_freq[bin_id] += 1
 
@@ -149,7 +149,7 @@ class RepeatFactorTrainingSampler(Sampler):
       # yield from self._local_indices
 
     def __len__(self):
-      return len(self._local_indices) / self._world_size
+      return int(len(self._local_indices) / self._world_size)
 
     def _infinite_indices(self):
         g = torch.Generator()

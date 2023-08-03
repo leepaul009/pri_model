@@ -25,309 +25,264 @@ from torch import Tensor
 
 
 def add_argument(parser):
-    assert isinstance(parser, argparse.ArgumentParser)
-    # Required parameters
-    parser.add_argument("--use_cpu",
-                        action='store_true',
-                        help="Whether to run training.")
-    parser.add_argument("--do_train",
-                        action='store_true',
-                        help="Whether to run training.")
-    parser.add_argument("-e", "--do_eval",
-                        action='store_true',
-                        help="Whether to run eval on the dev set.")
-    parser.add_argument("--do_test",
-                        action='store_true')
+  assert isinstance(parser, argparse.ArgumentParser)
+  # Required parameters
+  parser.add_argument("--use_cpu",
+                      action='store_true',
+                      help="Whether to run training.")
+  parser.add_argument("--do_train",
+                      action='store_true',
+                      help="Whether to run training.")
+  parser.add_argument("-e", "--do_eval",
+                      action='store_true',
+                      help="Whether to run eval on the dev set.")
+  parser.add_argument("--do_test",
+                      action='store_true')
 
-    parser.add_argument("--data_name",
-                        default='pri_data',
-                        type=str)
-    
-    parser.add_argument("--label_bin",
-                        action='store_true',
-                        help="Whether to run label_bin.")
+  parser.add_argument("--data_name",
+                      default='pri_data',
+                      type=str)
+  
+  parser.add_argument("--label_bin",
+                      action='store_true',
+                      help="Whether to run label_bin.")
 
-    parser.add_argument("--data_dir",
-                        default='data/pri_data/train/',
-                        type=str)
-    parser.add_argument("--data_dir_for_val",
-                        default='data/pri_data/val/',
-                        type=str)
-    parser.add_argument("--data_dir_for_test",
-                        default='data/pri_data/test/',
-                        type=str)
-    parser.add_argument("--output_dir", default="tmp/", type=str)
-    parser.add_argument("--log_dir", default=None, type=str)
-    parser.add_argument("--temp_file_dir", default=None, type=str)
+  parser.add_argument("--data_dir",
+                      default='data/pri_data/train/',
+                      type=str)
+  parser.add_argument("--data_dir_for_val",
+                      default='data/pri_data/val/',
+                      type=str)
+  parser.add_argument("--data_dir_for_test",
+                      default='data/pri_data/test/',
+                      type=str)
+  parser.add_argument("--output_dir", default="tmp/", type=str)
+  parser.add_argument("--log_dir", default=None, type=str)
+  parser.add_argument("--temp_file_dir", default=None, type=str)
 
-    parser.add_argument("--resume",
-                        action='store_true',
-                        help="Whether to run resume.")
-    parser.add_argument("--resume_path",
-                        default='',
-                        type=str)
-    parser.add_argument("--train_batch_size",
-                        default=32,
-                        type=int,
-                        help="Total batch size for training.")
-    parser.add_argument("--eval_batch_size",
-                        default=32,
-                        type=int,
-                        help="Total batch size for eval.")
-    parser.add_argument("--test_batch_size",
-                        default=32,
-                        type=int,
-                        help="Total batch size for test.")
-    parser.add_argument("--model_recover_path",
-                        default=None,
-                        type=str)
-    parser.add_argument("--learning_rate", default=0.001, type=float,
-                        help="The initial learning rate for Adam.")
-    parser.add_argument("--weight_decay",
-                        default=0.01,
-                        type=float,
-                        help="The weight decay rate for Adam.")
-    parser.add_argument("--num_train_epochs",
-                        default=100.0,
-                        type=float,
-                        help="Total number of training epochs to perform.")
-    parser.add_argument('--seed',
-                        type=int,
-                        default=42,
-                        help="random seed for initialization")
-    parser.add_argument("--no_cuda",
-                        action='store_true',
-                        help="Whether not to use CUDA when available")
-    parser.add_argument("--hidden_size",
-                        default=128,
-                        type=int)
-    parser.add_argument("--hidden_dropout_prob",
-                        default=0.1,
-                        type=float)
-    parser.add_argument("--sub_graph_depth",
-                        default=3,
-                        type=int)
-    parser.add_argument("--global_graph_depth",
-                        default=1,
-                        type=int)
-    parser.add_argument("--debug",
-                        action='store_true')
-    parser.add_argument("--initializer_range",
-                        default=0.02,
-                        type=float)
-    parser.add_argument("--sub_graph_batch_size",
-                        default=8000,
-                        type=int) # useless
-    parser.add_argument("-d", "--distributed_training",
-                        nargs='?',
-                        default=8,
-                        const=4,
-                        type=int)
-    parser.add_argument("--cuda_visible_device_num",
-                        default=None,
-                        type=int)
-    parser.add_argument("--use_map",
-                        action='store_true')
-    parser.add_argument("--reuse_temp_file",
-                        action='store_true')
-    parser.add_argument("--old_version",
-                        action='store_true')
-    parser.add_argument("--max_distance",
-                        default=50.0,
-                        type=float)
-    parser.add_argument("--no_sub_graph",
-                        action='store_true')
-    parser.add_argument("--no_agents",
-                        action='store_true')
-    parser.add_argument("--other_params",
-                        nargs='*',
-                        default=[],
-                        type=str)
-    parser.add_argument("-ep", "--eval_params",
-                        nargs='*',
-                        default=[],
-                        type=str)
-    parser.add_argument("-tp", "--train_params",
-                        nargs='*',
-                        default=[],
-                        type=str)
-    parser.add_argument("--not_use_api",
-                        action='store_true')
-    parser.add_argument("--core_num",
-                        default=1,
-                        type=int)
-    parser.add_argument("--visualize",
-                        action='store_true')
-    parser.add_argument("--train_extra",
-                        action='store_true')
-    parser.add_argument("--use_centerline",
-                        action='store_true')
-    parser.add_argument("--autoregression",
-                        nargs='?',
-                        default=None,
-                        const=2,
-                        type=int)
-    parser.add_argument("--lstm",
-                        action='store_true')
-    parser.add_argument("--add_prefix",
-                        default=None)
-    parser.add_argument("--attention_decay",
-                        action='store_true')
-    parser.add_argument("--placeholder",
-                        default=0.0,
-                        type=float)
-    parser.add_argument("--multi",
-                        nargs='?',
-                        default=None,
-                        const=6,
-                        type=int)
-    parser.add_argument("--method_span",
-                        nargs='*',
-                        default=[0, 1],
-                        type=int)
-    parser.add_argument("--nms_threshold",
-                        default=None,
-                        type=float)
-    parser.add_argument("--stage_one_K", type=int)
-    parser.add_argument("--master_port", default='12355')
-    parser.add_argument("--gpu_split",
-                        nargs='?',
-                        default=0,
-                        const=2,
-                        type=int)
-    parser.add_argument("--waymo",
-                        action='store_true')
-    parser.add_argument("--argoverse",
-                        action='store_true')
-    parser.add_argument("--nuscenes",
-                        action='store_true')
-    parser.add_argument("--future_frame_num",
-                        default=80,
-                        type=int)
-    parser.add_argument("--future_test_frame_num",
-                        default=16,
-                        type=int)
-    parser.add_argument("--single_agent",
-                        action='store_true',
-                        default=True)
-    parser.add_argument("--agent_type",
-                        default=None,
-                        type=str)
-    parser.add_argument("--inter_agent_types",
-                        default=None,
-                        nargs=2,
-                        type=str)
-    parser.add_argument("--mode_num",
-                        default=6,
-                        type=int)
-    parser.add_argument("--local_rank", type=int, default=0)
+  parser.add_argument("--resume",
+                      action='store_true',
+                      help="Whether to run resume.")
+  parser.add_argument("--resume_path",
+                      default='',
+                      type=str)
+  parser.add_argument("--train_batch_size",
+                      default=32,
+                      type=int,
+                      help="Total batch size for training.")
+  parser.add_argument("--eval_batch_size",
+                      default=32,
+                      type=int,
+                      help="Total batch size for eval.")
+  parser.add_argument("--test_batch_size",
+                      default=32,
+                      type=int,
+                      help="Total batch size for test.")
+  parser.add_argument("--model_recover_path",
+                      default=None,
+                      type=str)
+  parser.add_argument("--learning_rate", default=0.001, type=float,
+                      help="The initial learning rate for Adam.")
+  parser.add_argument("--weight_decay",
+                      default=0.01,
+                      type=float,
+                      help="The weight decay rate for Adam.")
+  parser.add_argument("--num_train_epochs",
+                      default=100.0,
+                      type=float,
+                      help="Total number of training epochs to perform.")
+  parser.add_argument('--seed',
+                      type=int,
+                      default=42,
+                      help="random seed for initialization")
+  parser.add_argument("--no_cuda",
+                      action='store_true',
+                      help="Whether not to use CUDA when available")
+  parser.add_argument("--hidden_size",
+                      default=128,
+                      type=int)
 
-    ## input features
-    parser.add_argument("--pwm_type",
-                        default='',
-                        type=str,
-                        help='use pwm feature as input, and choose pwm type')
-    parser.add_argument("--use_chemistry",
-                        action='store_true',
-                        help='use chemistry feature as input')
-    parser.add_argument("--use_prot_chm_feature",
-                        action='store_true',
-                        help='use chemistry feature as input')
-    parser.add_argument("--use_repeat_sampler",
-                        action='store_true',
-                        help='use chemistry feature as input')
-    parser.add_argument("--display_steps",
-                        default=10,
-                        type=int)
-    parser.add_argument("--step_lr",
-                        action='store_true',
-                        help='set to update lr by steps')
-    parser.add_argument("--steps_update_lr",
-                        default=2000,
-                        type=int,
-                        help='update lr by setting steps')   
+  parser.add_argument("--use_deep_emb",
+                      action='store_true',
+                      help="Whether not to use embedding trained from DL")
+  parser.add_argument("--prot_emb_size",
+                      default=2560,
+                      type=int)
+  parser.add_argument("--nc_emb_size",
+                      default=768,
+                      type=int)
+
+  parser.add_argument("--hidden_dropout_prob",
+                      default=0.1,
+                      type=float)
+  parser.add_argument("--sub_graph_depth",
+                      default=3,
+                      type=int)
+  parser.add_argument("--global_graph_depth",
+                      default=1,
+                      type=int)
+  parser.add_argument("--debug",
+                      action='store_true')
+  parser.add_argument("--initializer_range",
+                      default=0.02,
+                      type=float)
+  parser.add_argument("--sub_graph_batch_size",
+                      default=8000,
+                      type=int) # useless
+  parser.add_argument("-d", "--distributed_training",
+                      nargs='?',
+                      default=8,
+                      const=4,
+                      type=int)
+  parser.add_argument("--cuda_visible_device_num",
+                      default=None,
+                      type=int)
+  # parser.add_argument("--use_map",
+  #                     action='store_true')
+  parser.add_argument("--reuse_temp_file",
+                      action='store_true')
+  # parser.add_argument("--old_version",
+  #                     action='store_true')
+
+  parser.add_argument("--no_sub_graph",
+                      action='store_true')
+
+  parser.add_argument("--other_params",
+                      nargs='*',
+                      default=[],
+                      type=str)
+  parser.add_argument("-ep", "--eval_params",
+                      nargs='*',
+                      default=[],
+                      type=str)
+  parser.add_argument("-tp", "--train_params",
+                      nargs='*',
+                      default=[],
+                      type=str)
+
+  parser.add_argument("--core_num",
+                      default=1,
+                      type=int)
+  parser.add_argument("--visualize",
+                      action='store_true')
+  parser.add_argument("--attention_decay",
+                      action='store_true')
+
+  parser.add_argument("--local_rank", type=int, default=0)
+
+  ## input features
+  parser.add_argument("--pwm_type",
+                      default='',
+                      type=str,
+                      help='use pwm feature as input, and choose pwm type')
+  parser.add_argument("--use_chemistry",
+                      action='store_true',
+                      help='use chemistry feature as input')
+  parser.add_argument("--use_prot_chm_feature",
+                      action='store_true',
+                      help='use chemistry feature as input')
+  parser.add_argument("--use_repeat_sampler",
+                      action='store_true',
+                      help='use chemistry feature as input')
+  parser.add_argument("--display_steps",
+                      default=10,
+                      type=int)
+
+  # parser.add_argument('--lr_sch',
+  #                     default='no',
+  #                     const='no',
+  #                     nargs='?',
+  #                     choices=['cos', 'step', 'no'],
+  #                     help='choose lr schedular (default: %(default)s)')
+  parser.add_argument("--step_lr",
+                      action='store_true',
+                      help='set to update lr by steps')
+  parser.add_argument("--steps_update_lr",
+                      default=2000,
+                      type=int,
+                      help='update lr by setting steps')   
+  parser.add_argument("--direct_read_cache",
+                      action='store_true',
+                      help='set to directly read cache input tmp file rather than generate and read')
+  parser.add_argument("--warmup_epoch",
+                      default=10,
+                      type=int,
+                      help='warmup epoch')   
 
 class Args:
-    data_dir = None
-    data_dir_for_val = None
-    data_dir_for_test = None
-    data_name = None
-    data_kind = None
-    
-    label_bin = None
-    
-    use_cpu = None
-    do_train = None
-    do_eval = None
-    do_test = None
+  data_dir = None
+  data_dir_for_val = None
+  data_dir_for_test = None
+  data_name = None
+  data_kind = None
+  
+  label_bin = None
+  
+  use_cpu = None
+  do_train = None
+  do_eval = None
+  do_test = None
 
-    train_batch_size = None
-    eval_batch_size = None
-    test_batch_size = None
+  train_batch_size = None
+  eval_batch_size = None
+  test_batch_size = None
 
-    debug = None
-    seed = None
+  debug = None
+  seed = None
 
-    distributed_training = None
-    cuda_visible_device_num = None
-    log_dir = None
-    learning_rate = None
-    
-    hidden_size = None
-    sub_graph_depth = None
-    global_graph_depth = None
-    train_batch_size = None
-    num_train_epochs = None
-    initializer_range = None
-    sub_graph_batch_size = None
-    temp_file_dir = None
-    output_dir = None
-    use_map = None
-    reuse_temp_file = None
-    old_version = None
-    model_recover_path = None
-    
-    resume = None
-    resume_path = None
-    max_distance = None
-    no_sub_graph = None
-    other_params: Dict = None
-    eval_params = None
-    train_params = None
-    no_agents = None
-    not_use_api = None
-    core_num = None
-    visualize = None
-    train_extra = None
-    hidden_dropout_prob = None
-    use_centerline = None
-    autoregression = None
-    lstm = None
-    add_prefix = None
-    attention_decay = None
-    
-    placeholder = None
-    multi = None
-    method_span = None
-    waymo = None
-    argoverse = None
-    nuscenes = None
-    single_agent = None
-    agent_type = None
-    future_frame_num = None
-    no_cuda = None
-    mode_num = None
-    nms_threshold = None
-    inter_agent_types = None
-    local_rank = None
-    ## input features
-    pwm_type = None
-    use_chemistry = None
-    use_prot_chm_feature = None
-    use_repeat_sampler = None
-    display_steps = None
-    step_lr = None
-    steps_update_lr = None
+  distributed_training = None
+  cuda_visible_device_num = None
+  log_dir = None
+  learning_rate = None
+  
+  hidden_size = None
+
+  use_deep_emb = None
+  prot_emb_size = None
+  nc_emb_size = None
+
+  sub_graph_depth = None
+  global_graph_depth = None
+  train_batch_size = None
+  num_train_epochs = None
+  initializer_range = None
+  sub_graph_batch_size = None
+  temp_file_dir = None
+  output_dir = None
+  # use_map = None
+  reuse_temp_file = None
+  # old_version = None
+  model_recover_path = None
+  
+  resume = None
+  resume_path = None
+
+  no_sub_graph = None
+  other_params: Dict = None
+  eval_params = None
+  train_params = None
+
+
+  core_num = None
+  visualize = None
+
+  hidden_dropout_prob = None
+
+
+
+  attention_decay = None
+  
+  local_rank = None
+  ## input features
+  pwm_type = None
+  use_chemistry = None
+  use_prot_chm_feature = None
+  use_repeat_sampler = None
+  display_steps = None
+  step_lr = None
+  steps_update_lr = None
+  direct_read_cache = None
+  warmup_epoch = None
 
 args: Args = None
 

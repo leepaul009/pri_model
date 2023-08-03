@@ -5,7 +5,12 @@ output_*/
 dna_dataset_task_*/
 .vscode
 
+
+data/tmp/
+notebook/mmseq/
+
 *.npz
+*.fasta
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

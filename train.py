@@ -23,6 +23,7 @@ import utils
 
 from data.dataset_pri import PriDataset, PriDatasetExt
 from data.distributed_sampler import RepeatFactorTrainingSampler
+from utilities.schedular import WarmupExponentialLR, WarmupCosineAnnealingLR
 
 from modeling.graphnet import GraphNet
 from modeling.post_process import PostProcess
@@ -31,7 +32,7 @@ torch.backends.cudnn.enabled = True
 torch.backends.cudnn.benchmark = True 
 
 
-def lr_decay(args, all_steps, step, optimizer):
+def lr_decay_by_steps(args, all_steps, step, optimizer):
   steps_update_lr = args.steps_update_lr
   cur_lr = None
   for p in optimizer.param_groups:
@@ -144,7 +145,7 @@ def train_one_epoch(model, train_dataloader, val_dataloader,
       save_ckpt(model, optimizer, save_dir, i_epoch, step)
     
     if args.step_lr:
-      lr_decay(args, steps_sz, step, optimizer)
+      lr_decay_by_steps(args, steps_sz, step, optimizer)
 
   # do eval after an epoch training
   if args.do_eval:
@@ -188,7 +189,6 @@ def main():
 
   config = dict()
   model = GraphNet(config, args)
-  # model = model.cuda()
   model = model.to(device)
 
   post_process = PostProcess(args.output_dir)
@@ -200,7 +200,9 @@ def main():
         device_ids=[args.local_rank], 
         output_device=args.local_rank)
 
-  optimizer = torch.optim.Adam(model.parameters(), lr=args.learning_rate)
+  optimizer = torch.optim.Adam(
+    model.parameters(), lr=args.learning_rate,
+    betas=(0.9, 0.98), weight_decay=0.01)
 
   start_epoch = 0
   if args.resume:
@@ -213,8 +215,12 @@ def main():
 
 
   # use 20 epoch from init_lr to 0
-  # lr_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
-  #   optimizer, T_max=50)
+  # lr_scheduler = WarmupCosineAnnealingLR(
+  #   optimizer, 
+  #   T_max=args.num_train_epochs - args.warmup_epoch, 
+  #   warmup_epochs=args.warmup_epoch)
+  lr_scheduler = WarmupExponentialLR(
+    optimizer, gamma=0.95, warmup_epochs=args.warmup_epoch)
   
   
   if args.do_test:
@@ -231,17 +237,15 @@ def main():
       pin_memory=False)
 
     test(model, test_dataloader, post_process, start_epoch, device, args)
-
   else:
     if args.data_name == 'hox_data':
       train_dataset = PriDatasetExt(args, args.data_dir, args.train_batch_size)
     else:
       train_dataset = PriDataset(args, args.data_dir, args.train_batch_size)
 
-
     if args.use_repeat_sampler:
       print("use RepeatFactorTrainingSampler")
-      train_sampler = RepeatFactorTrainingSampler(train_dataset.ex_list, repeat_thresh=0.5)
+      train_sampler = RepeatFactorTrainingSampler(train_dataset.labels, repeat_thresh=0.5)
     else:
       train_sampler = DistributedSampler(train_dataset, num_replicas=get_world_size(), rank=get_rank())
     
@@ -265,25 +269,16 @@ def main():
     for i_epoch in range(int(start_epoch), int(start_epoch + args.num_train_epochs)):
 
       # learning_rate_decay(args, i_epoch, optimizer)
-      # get_rank
       if is_main_process():
         print('Epoch: {}/{}'.format(i_epoch, int(args.num_train_epochs)), end='  ')
         print('Learning Rate = %5.8f' % optimizer.state_dict()['param_groups'][0]['lr'])
 
-      # TODO: more function
       train_sampler.set_epoch(i_epoch)
       
       train_one_epoch(model, train_dataloader, val_dataloader, optimizer, post_process, device, i_epoch, args)
 
-      # lr_scheduler.step()
+      lr_scheduler.step()
       
 
 if __name__ == '__main__':
-  ###
   main()
-
-
-
-
-
-
