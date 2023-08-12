@@ -480,7 +480,7 @@ def merge_tensors(tensors: List[torch.Tensor], device, hidden_size=None) -> Tupl
     return res, lengths
 
 def batch_list_to_batch_tensors(batch):
-    return [each for each in batch]
+    return [each for each in batch] # batch is a list of dicts
 
 def get_from_mapping(mapping: List[Dict], key=None):
     # if key is None:

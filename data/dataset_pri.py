@@ -193,7 +193,7 @@ class PriDataset(torch.utils.data.Dataset):
         dis_list = []
         while True:
           other_inputs = dict()
-          data_item = queue.get()
+          data_item = queue.get() # get and remove from queue
           if data_item is None:
               break
           if args.data_name == 'hox_data':
@@ -227,8 +227,9 @@ class PriDataset(torch.utils.data.Dataset):
           pbar.update(1)
 
       # necessary because queue is out-of-order
+      # wait items in queue be used and removed
       while not queue.empty():
-          pass
+        pass
       pbar.close()
       
       # move output files from queue_res into self.ex_list

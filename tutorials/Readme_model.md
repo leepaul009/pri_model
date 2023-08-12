@@ -1,4 +1,96 @@
 
+###
+```
+bert.encoder.layer.0.attention.self.query.weight        torch.Size([768, 768])
+bert.encoder.layer.0.attention.self.query.bias        torch.Size([768])
+bert.encoder.layer.0.attention.self.key.weight        torch.Size([768, 768])
+bert.encoder.layer.0.attention.self.key.bias        torch.Size([768])
+bert.encoder.layer.0.attention.self.value.weight        torch.Size([768, 768])
+bert.encoder.layer.0.attention.self.value.bias        torch.Size([768])
+## BertAttention:
+  q, k, v -> q', k', v'
+  att = q'*k'
+  att = att*mask
+  out = att*v'
+
+
+bert.encoder.layer.0.attention.output.dense.weight        torch.Size([768, 768])
+bert.encoder.layer.0.attention.output.dense.bias        torch.Size([768])
+bert.encoder.layer.0.attention.output.LayerNorm.weight        torch.Size([768])
+bert.encoder.layer.0.attention.output.LayerNorm.bias        torch.Size([768])
+## BertSelfOutput: 
+  x' = fc(input)
+  x = input + x' (residue)
+  x = lnorm(x)
+  inputB = x
+
+bert.encoder.layer.0.intermediate.dense.weight        torch.Size([3072, 768])
+bert.encoder.layer.0.intermediate.dense.bias        torch.Size([3072])
+## BertIntermediate: 
+  x = fc(inputB)
+  x = gelu(x)
+
+bert.encoder.layer.0.output.dense.weight        torch.Size([768, 3072])
+bert.encoder.layer.0.output.dense.bias        torch.Size([768])
+bert.encoder.layer.0.output.LayerNorm.weight        torch.Size([768])
+bert.encoder.layer.0.output.LayerNorm.bias        torch.Size([768])
+## BertOutput:
+  x' = fc(x)
+  x = inputB + x' (residue)
+  x = lnorm(x)
+
+######
+
+x = emb(x)
+x = lnorm(x)
+
+att{
+  input = x       (use residue after lnorm)
+  x == q, k, v -> q', k', v'
+  att = q'*k'
+  att = att*mask
+  x = att*v'
+
+  x = fc(x)
+  x = input + x   (residue)
+  x = lnorm(x)
+}
+  inputB = x      (use residue after lnorm)
+  x = fc(x)
+  x = gelu(x)
+  x = fc(x)
+  x = inputB + x  (residue)
+  x = lnorm(x)
+```
+
+### esm
+```
+##
+  x = emb(x)
+  ## x6
+  {
+    input = x     (esm use residue before lnorm)
+    x = lnorm(x)
+    x == q, k, v -> q', k', v'
+    att = q'*k'
+    att = att*mask
+    x = att*v'
+
+    x = fc(x)       # out_proj
+    x = input + x   (residue)
+  }
+  
+    inputB = x    (esm use residue before lnorm)
+    x = lnorm(x)
+    x = fc(x)
+    x = gelu(x)
+    x = fc(x)
+    x = inputB + x  (residue)
+
+  x = lnorm(x)
+## conc:
+  residue + lnorm
+```
 
 ### hox model:
 

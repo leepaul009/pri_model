@@ -1,3 +1,4 @@
+from typing import Sequence, Tuple, List, Union
 import copy
 import math
 import multiprocessing
@@ -126,6 +127,16 @@ def get_nc_chemistry(na_jobid, input_nucleotide, fdir):
     nc_feat_tensor[:, dna_cols:] = final_arr
   return nc_feat_tensor
 
+def convert_to_conv_format(nucleotide_sequences: List[str], kmers: int = 6) -> List[str]:
+  output_seqs = []
+  for seq in nucleotide_sequences:
+    n_out = len(seq) - kmers + 1
+    convs = [seq[i:i+kmers] for i in range(n_out)]
+    seq_convs = ' '.join(convs)
+    output_seqs.append(seq_convs)
+  
+  return output_seqs[0] if len(output_seqs) == 1 else output_seqs
+
 ####################################
 
 def pri_get_instance(input_complex, args, other_inputs):
@@ -198,13 +209,16 @@ def pri_get_instance(input_complex, args, other_inputs):
 
   ################# get nucleotide features #################
   # nucleotide_to_index = {'A':0, 'C':1, 'G':2, 'T':3, 'U':3}
+  seqs_kmers = None
+  nucleotide_sequences = None
+  if '|' in input_nucleotide:
+    nucleotide_sequences = input_nucleotide.split('|')
+  else:
+    nucleotide_sequences = [input_nucleotide]
+  seqs_kmers = convert_to_conv_format(nucleotide_sequences)
+  
+  
   if not args.use_deep_emb:
-    nucleotide_sequences = None
-    if '|' in input_nucleotide:
-      nucleotide_sequences = input_nucleotide.split('|')
-    else:
-      nucleotide_sequences = [input_nucleotide]
-    
     nucleotide_attributes = list()
     for seq in nucleotide_sequences:
       seq_data = np.array( [nucleotide_to_index[it] for it in seq] )
@@ -241,6 +255,8 @@ def pri_get_instance(input_complex, args, other_inputs):
   mapping = {}
   mapping.update(dict(
     exp_id = input_complex["exp_id"],
+    protein = input_protein,
+    seqs_kmers = seqs_kmers,
     aa_attributes = aa_attributes,  # (num_aa, 20)
     aa_pwm = aa_pwm_feature,        # (num_aa, ?)
     aa_chm = aa_chm_feature,        # (num_aa, 37)
@@ -313,12 +329,15 @@ def hox_get_instance(input_complex, args, other_inputs):
 
   ################# get nucleotide features #################
   # nucleotide_to_index = {'A':0, 'C':1, 'G':2, 'T':3, 'U':3}
+  seqs_kmers = None
   nucleotide_sequences = None
   if '|' in input_nucleotide:
     nucleotide_sequences = input_nucleotide.split('|')
   else:
     nucleotide_sequences = [input_nucleotide]
   
+  seqs_kmers = convert_to_conv_format(nucleotide_sequences)
+   
   nucleotide_attributes = list()
   for seq in nucleotide_sequences:
     seq_data = np.array( [nucleotide_to_index[it] for it in seq] )
@@ -335,6 +354,9 @@ def hox_get_instance(input_complex, args, other_inputs):
 
   mapping = {}
   mapping.update(dict(
+    exp_id = input_complex["exp_id"],
+    protein = input_protein,
+    seqs_kmers = seqs_kmers,
     aa_attributes = aa_attributes,  # (num_aa, 20)
     aa_pwm = None,        # (num_aa, 20 or 30)
     aa_chm = aa_chm_feature,        # (num_aa, 7)

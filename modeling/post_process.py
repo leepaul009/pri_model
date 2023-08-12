@@ -56,17 +56,21 @@ class PostProcess(nn.Module):
                 metrics[key] += post_out[key]
             # print("post process: {} = {}".format(key, metrics[key]))
 
+        # gather prediction and labels during validation and inference
         if preds is not None and input is not None:
+            preds = preds.detach().cpu().numpy().reshape(-1) # (bs, 1) => (bs)
+            if isinstance(input[0], Dict):
+                labels = np.array(utils.get_from_mapping(input, 'label'))
+            elif len(input) == 3: # for new model
+                list_dict, _, _ = input
+                labels = np.array([idict['label'] for idict in list_dict])
+            else: # useless
+                labels = np.array([idict['label'] for idict, _ in input])
             if "preds" not in metrics:
-                preds = preds.detach().cpu().numpy().reshape(-1) # (bs, 1) => (bs)
-                metrics["preds"] = preds # (bs)
-
-                labels = np.array(utils.get_from_mapping(input, 'label')) # (bs)
+                metrics["preds"] = preds
                 metrics["gts"] = labels
             else:
-                preds = preds.detach().cpu().numpy().reshape(-1) # (bs, 1) => (bs)
                 metrics["preds"] = np.concatenate((metrics["preds"], preds))
-                labels = np.array(utils.get_from_mapping(input, 'label')) # (bs)
                 metrics["gts"] = np.concatenate((metrics["gts"], labels))
 
         return metrics
@@ -74,30 +78,27 @@ class PostProcess(nn.Module):
     # def set_output_dir(self, path):
     #     self.output_dir = path
 
-    def display(self, metrics, epoch, step=None, lr=None, time=None):
-        # if lr is not None:
-        #     # print("Epoch = {}, Step = {}".format(epoch, step))
-        #     NotImplemented
-        # else:
-        #     print("**************** validation epoch {} ****************".format(epoch))
-        
-        if 'reg_loss' not in metrics:
-            print(metrics.keys())
-        if 'cls_loss' in metrics:
-            loss = (metrics["reg_loss"] + metrics["cls_loss"]) / (metrics["num_reg"] + 1e-10)
-            loss_logic = (metrics["cls_loss"]) / (metrics["num_reg"] + 1e-10)
-            loss_reg = (metrics["reg_loss"]) / (metrics["num_reg"] + 1e-10)
-        else:
-            loss = metrics["reg_loss"] / (metrics["num_reg"] + 1e-10)
-            loss_logic = 0.0
-            loss_reg = metrics["reg_loss"] / (metrics["num_reg"] + 1e-10)
+    def display(self, metrics, epoch, step=None, lr=None, time=None, training=False):
 
-        ### print info
-        if lr is not None:
-            ### print in train process
+        if 'reg_loss' not in metrics:
+            print("reg loss not found in metrics, {}".format(metrics.keys()))
+        if 'cls_loss' in metrics:
+            loss        = (metrics["reg_loss"] + metrics["cls_loss"]) / (metrics["num_reg"] + 1e-10)
+            loss_logic  = (metrics["cls_loss"]) / (metrics["num_reg"] + 1e-10)
+            loss_reg    = (metrics["reg_loss"]) / (metrics["num_reg"] + 1e-10)
+        else:
+            loss        = metrics["reg_loss"] / (metrics["num_reg"] + 1e-10)
+            loss_logic  = 0.0
+            loss_reg    = loss
+        
+        metrics["loss"] = loss
+        
+        # print info
+        if training:
             print("epoch = {} step = {}, loss = {:.4f}, loss_logic = {:.4f}, loss_reg = {:.4f}, time = {:.2f}, lr = {:.5f}".format(
                    epoch, step, loss, loss_logic, loss_reg, time, lr))
         else:
+            accuracy = 0.0
             rvalue, pvalue, rrmse = 0, 0, 0
             if "preds" in metrics and "gts" in metrics:
                 preds = metrics["preds"]
@@ -106,22 +107,35 @@ class PostProcess(nn.Module):
                 # rvalue 表示 皮尔森系数，越接近1越好，一般要到0.75以上，预测合格，pvalue表示检验的p值，需要小于0.05，严格一点需要小于0.01
                 rrmse = sklearn_metrics.mean_squared_error(gts, preds)
                 # rrmse 表示实验值和预测值之间的均方根误差，值越接近于0越好
-                save_dir = os.path.join(self.output_dir, "prediction")
-                if not os.path.exists(save_dir):
-                    print("Directory {} doesn't exist, create a new.".format(save_dir))
-                    os.makedirs(save_dir)
-                    
-                output_file = os.path.join(save_dir, "pred_output_{}".format(epoch))
-                np.savez(output_file, preds=preds, gts=gts)
+                # accuracy
+                toleration = 1.0
+                abs_error = np.abs(preds - gts)
+                indices = np.where(abs_error <= toleration)[0]
+                accuracy = len(indices) * 1.0 / len(abs_error)
 
-                info = {'loss': loss, 'rvalue': rvalue, 'pvalue': pvalue, 'rrmse': rrmse}
-                output_file = os.path.join(save_dir, "info_{}_{:.3f}".format(epoch, rvalue))
-                np.savez(output_file, info=info)
+                metrics['val_info'] = {
+                    epoch : {'loss': loss, 'rvalue': rvalue, 'pvalue': pvalue, 'rrmse': rrmse},
+                }
 
+            print("validation epoch {}: loss = {:.4f}, acc = {:.4f}, loss_logic = {:.4f}, loss_reg = {:.4f}, rvalue = {:.4f}, pvalue = {:.4f}, rrmse = {:.4f}".format(
+                epoch, loss, accuracy, loss_logic, loss_reg, rvalue, pvalue, rrmse))
 
-            print("validation epoch {}: loss = {:.4f}, loss_logic = {:.4f}, loss_reg = {:.4f}, rvalue = {:.4f}, pvalue = {:.4f}, rrmse = {:.4f}".format(
-                epoch, loss, loss_logic, loss_reg, rvalue, pvalue, rrmse))
-            # print("gts: {} ".format(gts))
-            # print("preds: {} ".format(preds))
+    # only run for validation and test
+    def updateOutput(self, epoch, loss_val, metrics, gmetrics):
+        gmetrics['val_info'].update(metrics['val_info'])
+        # replace output only when this epoch's loss is lower
+        if loss_val < gmetrics['min_eval_loss']:
+            gmetrics['output'] = {
+                'epoch': epoch, # int
+                'preds': metrics["preds"], # np.array
+                'labels': metrics["gts"],  # np.array
+            }
+            
+        save_dir = os.path.join(self.output_dir, "prediction")
+        if not os.path.exists(save_dir):
+            print("Directory {} doesn't exist, create a new.".format(save_dir))
+            os.makedirs(save_dir)
 
-
+        output_file = os.path.join(save_dir, "validation_metrics")
+        np.savez(output_file, metrics=gmetrics)
+        

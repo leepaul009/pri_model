@@ -116,6 +116,7 @@ def process_dna_dataset(args, current_path):
       sum_id += 1
     assert sum_id == num_dfs, 'invalid number of unique prot'
 
+    # wait items in queue be used and removed
     while not queue.empty():
       pass
     pbar.close()

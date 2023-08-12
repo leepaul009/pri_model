@@ -25,63 +25,18 @@ from data.dataset_pri import PriDataset, PriDatasetExt
 from data.distributed_sampler import RepeatFactorTrainingSampler
 from utilities.schedular import WarmupExponentialLR, WarmupCosineAnnealingLR
 
-from modeling.graphnet import GraphNet
+from modeling.globalnet import GlobalNet
 from modeling.post_process import PostProcess
+from modeling.esm.data import Alphabet
+from modeling.dbert.data import Alphabet as DAlphabet
+from modeling.batch_convert.batch_convert import BasicBatchConvert
+
 
 torch.backends.cudnn.enabled = True
 torch.backends.cudnn.benchmark = True 
 
-
-def lr_decay_by_steps(args, all_steps, step, optimizer):
-  steps_update_lr = args.steps_update_lr
-  cur_lr = None
-  for p in optimizer.param_groups:
-    cur_lr = p['lr']
-    break
-
-  min_lr = 0.0001
-  # delta_lr = (args.learning_rate - min_lr) / (all_steps / steps_update_lr)
-  # print(( args.learning_rate - min_lr), (all_steps / steps_update_lr), delta_lr )
-
-  if step > 1 and step % steps_update_lr == 0 and cur_lr > min_lr:
-    for p in optimizer.param_groups:
-      p['lr'] *= 0.99
-    print("step {}, updated lr = {:.5f}, update lr every {} steps".format(step, p['lr'], steps_update_lr))
-
-
-def learning_rate_decay(args, i_epoch, optimizer, optimizer_2=None):
-  epoch_update_lr = 100
-  if i_epoch > 0 and i_epoch % epoch_update_lr == 0:
-    for p in optimizer.param_groups:
-      p['lr'] *= 0.75
-
-
-def save_ckpt(model, opt, save_dir, epoch, iter, overwrite=False):
-  save_dir = os.path.join(save_dir, "checkpoint")
-  if not os.path.exists(save_dir):
-    print("Directory {} doesn't exist, create a new.".format(save_dir))
-    os.makedirs(save_dir)
-
-  # process model for multi-GPU or single-GPU case:
-  model_to_save = model.module if hasattr(
-    model, 'module') else model  # Only save the model it-self
-
-  # move from gpu to cpu
-  state_dict = model_to_save.state_dict()
-  for key in state_dict.keys():
-    state_dict[key] = state_dict[key].cpu()
-
-  if not overwrite:
-    output_model_file = os.path.join(
-      save_dir, "model.{}.{}.ckpt".format(epoch + 1, iter))
-  else:
-    output_model_file = os.path.join(save_dir, "model.ckpt")
-  print("save checkpoint to {}".format(output_model_file))
-  torch.save(
-    {"epoch": epoch + 1, 
-      "state_dict": state_dict, 
-      "opt_state": opt.state_dict()},
-    output_model_file)
+from train import lr_decay_by_steps, learning_rate_decay, save_ckpt, \
+  load_pretrain, preprocess
 
 
 def test(model, dataloader, post_process, epoch, device, args):
@@ -95,8 +50,9 @@ def test(model, dataloader, post_process, epoch, device, args):
       post_process.append(metrics, post_out, pred, batch)
   post_process.display(metrics, epoch)
 
+def val(model, dataloader, post_process, epoch, device, args):
 
-def val(model, dataloader, post_process, epoch, device, args, gmetrics):
+  # model.to(device)
   model.eval()
 
   iter_bar = tqdm(dataloader, desc='Iter (loss=X.XXX)')
@@ -109,20 +65,15 @@ def val(model, dataloader, post_process, epoch, device, args, gmetrics):
       post_process.append(metrics, post_out, pred, batch)
   
   post_process.display(metrics, epoch)
+  # mean_loss = 0
+  # print("validation result: epoch={} loss={}".format(epoch, mean_loss))
+
+  # for training of next epoch
   model.train()
-
-  # save model with min validation loss
-  loss_val = metrics['loss']
-  if loss_val < gmetrics['min_eval_loss']:
-    gmetrics['save'] = True
-  # updateOutput should be run after display
-  post_process.updateOutput(epoch, loss_val, metrics, gmetrics)
-  gmetrics['min_eval_loss'] = min(loss_val, gmetrics['min_eval_loss'])
-
 
 def train_one_epoch(model, train_dataloader, val_dataloader, 
                     optimizer,
-                    post_process, device, i_epoch, args, gmetrics):
+                    post_process, device, i_epoch, args):
   save_iters = 1000
   save_dir = args.output_dir
   metrics = dict()
@@ -144,39 +95,20 @@ def train_one_epoch(model, train_dataloader, val_dataloader,
     if is_main_process and step % args.display_steps == 0:
       end_time = time.time()
       curr_lr = optimizer.param_groups[0]['lr']
-      post_process.display(metrics, 
-        i_epoch, step, curr_lr, end_time - start_time, training=True)
+      post_process.display(metrics, i_epoch, step, curr_lr, end_time - start_time)
       
-    # if is_main_process and step > 5000 and step % save_iters == 0:
-    #   save_ckpt(model, optimizer, save_dir, i_epoch, step, overwrite=True)
+    if is_main_process and step > 5000 and step % save_iters == 0:
+      save_ckpt(model, optimizer, save_dir, i_epoch, step)
     
     if args.step_lr:
       lr_decay_by_steps(args, steps_sz, step, optimizer)
 
   # do eval after an epoch training
   if args.do_eval:
-    val(model, val_dataloader, post_process, i_epoch, device, args, gmetrics)
+    val(model, val_dataloader, post_process, i_epoch, device, args)
 
-  if is_main_process and gmetrics['save']:
-    save_ckpt(model, optimizer, save_dir, i_epoch, step, overwrite=True)
-
-
-def load_pretrain(net, pretrain_dict):
-    state_dict = net.state_dict()
-    for key in pretrain_dict.keys():
-        if key in state_dict and (pretrain_dict[key].size() == state_dict[key].size()):
-            value = pretrain_dict[key]
-            if not isinstance(value, torch.Tensor):
-                value = value.data
-            state_dict[key] = value
-    net.load_state_dict(state_dict)
-
-def preprocess(args):
-  save_dir = os.path.join("output", args.output_dir)
-  if not os.path.exists(save_dir):
-    print("Directory {} doesn't exist, create a new.".format(save_dir))
-    os.makedirs(save_dir)
-  args.output_dir = save_dir
+  if is_main_process:
+    save_ckpt(model, optimizer, save_dir, i_epoch, step)
 
 def main():
   parser = argparse.ArgumentParser()
@@ -194,10 +126,39 @@ def main():
   if distributed:
       torch.distributed.init_process_group(backend="nccl", init_method="env://",)
 
-  ######
-  config = dict()
-  model = GraphNet(config, args)
+
+  path_esm2_cp = "dataset/checkpoints/esm2_t6_8M_UR50D.pt"
+  checkpoint = torch.load(path_esm2_cp)
+  cfg = checkpoint['cfg_model']
+  esm2_state = checkpoint['model']
+  # esm2_state.update(checkpoint["regression"])
+  
+  path_dbm_cp = 'dataset/checkpoints/dnabert_t12.pt'
+  checkpoint = torch.load(path_dbm_cp)
+  dbm_state = checkpoint['model']
+
+  alphabet = Alphabet.from_architecture("ESM-1b")
+  dalphabet = DAlphabet.from_architecture()
+  basic_batch_convert = BasicBatchConvert(alphabet, dalphabet)
+  model = GlobalNet(args, cfg, alphabet)
+
+  def update_state_dict(state_dict):
+    state_dict = {'esm2.' + name : param for name, param in state_dict.items()}
+    return state_dict
+  
+  def update_state_dict_dbm(state_dict):
+    state_dict = {'dbm.' + name : param for name, param in state_dict.items()}
+    return state_dict
+
+  ### only load esm2 checkpoint
+  esm2_state = update_state_dict(esm2_state)
+  dbm_state = update_state_dict_dbm(dbm_state)
+  esm2_state.update(dbm_state)
+  
+  model.load_state_dict(esm2_state, strict=False)
+
   model = model.to(device)
+  
   post_process = PostProcess(args.output_dir)
     
   if distributed:
@@ -207,10 +168,9 @@ def main():
         device_ids=[args.local_rank], 
         output_device=args.local_rank)
 
-  ######
   optimizer = torch.optim.Adam(
     model.parameters(), lr=args.learning_rate,
-    betas=(0.9, 0.98), weight_decay=0.03)
+    betas=(0.9, 0.98), weight_decay=0.01)
 
   start_epoch = 0
   if args.resume:
@@ -221,14 +181,14 @@ def main():
     optimizer.load_state_dict(ckpt["opt_state"])
     print("load ckpt from {} and train from epoch {}".format(ckpt_path, start_epoch))
 
-  ######
+
   # use 20 epoch from init_lr to 0
-  lr_scheduler = WarmupCosineAnnealingLR(
-    optimizer, 
-    T_max=args.num_train_epochs - args.warmup_epoch, 
-    warmup_epochs=args.warmup_epoch)
-  # lr_scheduler = WarmupExponentialLR(
-  #   optimizer, gamma=0.95, warmup_epochs=args.warmup_epoch)
+  # lr_scheduler = WarmupCosineAnnealingLR(
+  #   optimizer, 
+  #   T_max=args.num_train_epochs - args.warmup_epoch, 
+  #   warmup_epochs=args.warmup_epoch)
+  lr_scheduler = WarmupExponentialLR(
+    optimizer, gamma=0.95, warmup_epochs=args.warmup_epoch)
   
   
   if args.do_test:
@@ -241,7 +201,8 @@ def main():
     test_dataloader = torch.utils.data.DataLoader(
       test_dataset, sampler=test_sampler,
       batch_size=args.test_batch_size,
-      collate_fn=utils.batch_list_to_batch_tensors,
+      # collate_fn=utils.batch_list_to_batch_tensors,
+      collate_fn=basic_batch_convert,
       pin_memory=False)
 
     test(model, test_dataloader, post_process, start_epoch, device, args)
@@ -260,7 +221,9 @@ def main():
     train_dataloader = torch.utils.data.DataLoader(
       train_dataset, sampler=train_sampler,
       batch_size=args.train_batch_size // get_world_size(),
-      collate_fn=utils.batch_list_to_batch_tensors)
+      # collate_fn=utils.batch_list_to_batch_tensors
+      collate_fn=basic_batch_convert
+      )
     
     if args.data_name == 'hox_data':
       val_dataset = PriDatasetExt(args, args.data_dir_for_val, args.eval_batch_size)
@@ -271,15 +234,9 @@ def main():
     val_dataloader = torch.utils.data.DataLoader(
       val_dataset, sampler=val_sampler,
       batch_size=args.eval_batch_size,
-      collate_fn=utils.batch_list_to_batch_tensors,
+      # collate_fn=utils.batch_list_to_batch_tensors,
+      collate_fn=basic_batch_convert,
       pin_memory=False)
-
-    gmetrics = {
-      'save': False, 
-      'min_eval_loss': 1e6,
-      'val_info': dict(),
-      'output': None,
-    }
 
     for i_epoch in range(int(start_epoch), int(start_epoch + args.num_train_epochs)):
 
@@ -290,8 +247,7 @@ def main():
 
       train_sampler.set_epoch(i_epoch)
       
-      train_one_epoch(model, train_dataloader, val_dataloader, 
-        optimizer, post_process, device, i_epoch, args, gmetrics)
+      train_one_epoch(model, train_dataloader, val_dataloader, optimizer, post_process, device, i_epoch, args)
 
       lr_scheduler.step()
       

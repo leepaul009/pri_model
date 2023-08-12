@@ -134,3 +134,13 @@ nohup python -u train.py --data_name hox_data --data_dir dataset/dna_dataset/_da
 $ python data/data_cluster_analysis.py
 ## then you can file train.csv and test.csv in 'Your output dir'
 ```
+
+
+### New model
+```
+
+nohup python -u train_esm.py --data_dir dataset/tmp_data/hard02/train --data_dir_for_val dataset/tmp_data/hard02/val --core_num 8 --output_dir new_model_01 --train_batch_size 2 --eval_batch_size 2 --learning_rate 0.00001 --num_train_epochs 300 --do_eval --hidden_size 128 --warmup_epoch 20 >new_model_01.log 2>&1 &
+
+python train_esm.py --data_dir dataset/tmp_data/hard02/train --data_dir_for_val dataset/tmp_data/hard02/val --core_num 8 --output_dir new_model_01 --train_batch_size 2 --eval_batch_size 2 --learning_rate 0.00001 --num_train_epochs 300 --do_eval --hidden_size 128 --warmup_epoch 20
+
+```
