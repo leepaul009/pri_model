@@ -24,14 +24,17 @@ from preprocessing.protein_chemistry import list_atoms, max_num_atoms_in_aa, max
 
 from scipy.stats import linregress
 from sklearn import metrics as sklearn_metrics
-from modeling.esm.data import Alphabet
+# from modeling.esm.data import Alphabet
 # post_preprocessor
 
+from modeling.dbert.data import Alphabet as DAlphabet
 from modeling.esm.data import Alphabet
 from modeling.esm.esm2 import ESM2
 from modeling.dbert.dbert import DBM
 from modeling.dbert.config import DbmConfig
 
+
+from modeling.batch_convert.mask import mask_tokens
 
 class DgLoss(nn.Module):
     def __init__(self):
@@ -54,6 +57,14 @@ class DgLoss(nn.Module):
         return output
 
 
+vocab_by_kmers = {
+        3: 69,
+        4: 261,
+        5: 1029,
+        6: 4101,
+    }
+
+
 class GlobalNet(nn.Module):
     r"""
     It has two main components, sub graph and global graph.
@@ -62,13 +73,15 @@ class GlobalNet(nn.Module):
     n_aa: number of aa
     n_atoms: number of atoms in one aa
     """
-
-    def __init__(self, args_: utils.Args, esm2_cfg, alphabet: Alphabet):
+    def __init__(self, args_: utils.Args, esm2_cfg, alphabet: Alphabet, dalphabet: DAlphabet):
         super(GlobalNet, self).__init__()
         global args
         args = args_
         self.hidden_size = args.hidden_size
-
+        
+        self.alphabet  = alphabet
+        self.dalphabet = dalphabet
+        
         # self.esm2 = ESM2(
         #     num_layers=cfg.encoder_layers, # 6
         #     embed_dim=cfg.encoder_embed_dim, # 320
@@ -87,13 +100,15 @@ class GlobalNet(nn.Module):
             token_dropout=esm2_cfg.token_dropout, # True
         )
         
-        config = DbmConfig(num_hidden_layers=6)
+        config = DbmConfig(vocab_size=vocab_by_kmers[args.kmers], num_hidden_layers=6)
         self.dbm = DBM(config)
         
         
         self.loss = DgLoss()
         
-        self.reg_head = nn.Linear(in_features=esm2_cfg.encoder_embed_dim + config.hidden_size, 
+        self.nc_pool_kw = 2
+        head_in_dim = esm2_cfg.encoder_embed_dim + int(config.hidden_size/self.nc_pool_kw)
+        self.reg_head = nn.Linear(in_features=head_in_dim, 
                                   out_features=self.hidden_size, bias=False)
         
         self.reg_pred = nn.Linear(in_features=self.hidden_size, out_features=1, bias=False)
@@ -107,6 +122,11 @@ class GlobalNet(nn.Module):
 
     def forward(self, input: Tuple[List[Dict], Tensor, Tensor], device):
         mapping, aa_tokens, nc_tokens = input # aa_tokens (B,T), nc_tokens (B,T)
+        
+        aa_tokens = mask_tokens(aa_tokens, self.alphabet, is_extent=False)
+        # nc_sequences = utils.get_from_mapping(mapping, 'nc_sequences')
+        # print(nc_sequences)
+        nc_tokens = mask_tokens(nc_tokens, self.dalphabet)
         ### amino acid features
         # aa_attributes = utils.get_from_mapping(mapping, 'aa_attributes') # List[np.ndarray=(num_aa, 20)]
         # aa_pwm = utils.get_from_mapping(mapping, 'aa_pwm') if is_pwm_type_valid(self.pwm_type) else None
@@ -126,11 +146,16 @@ class GlobalNet(nn.Module):
         assert aa_emb is not None
         assert nc_emb is not None
         
-        aa_emb = aa_emb.permute(0,2,1).contiguous() # (B,C,T)
-        nc_emb = nc_emb.permute(0,2,1).contiguous() # (B,C,T)
+        # aa_emb = aa_emb.permute(0,2,1).contiguous() # (B,C,T)
+        # nc_emb = nc_emb.permute(0,2,1).contiguous() # (B,C,T)
         
-        aa_emb = F.avg_pool1d(aa_emb, aa_emb.shape[-1]).squeeze(-1) # (B,C)
-        nc_emb = F.avg_pool1d(nc_emb, nc_emb.shape[-1]).squeeze(-1) # (B,C)
+        # aa_emb = F.avg_pool1d(aa_emb, aa_emb.shape[-1]).squeeze(-1) # (B,C)
+        # nc_emb = F.avg_pool1d(nc_emb, nc_emb.shape[-1]).squeeze(-1) # (B,C)
+        
+        aa_emb = F.avg_pool2d(aa_emb, (aa_emb.shape[-2], 1)) # (B,T,C)=>(B,1,C)
+        nc_emb = F.avg_pool2d(nc_emb, (nc_emb.shape[-2], self.nc_pool_kw)) # (B,T,C)=>(B,1,C/2)
+        aa_emb = aa_emb.squeeze(-2)
+        nc_emb = nc_emb.squeeze(-2)
         
         comb_emb = torch.cat([aa_emb, nc_emb], dim=-1) # (B, Cp+Cn)
         

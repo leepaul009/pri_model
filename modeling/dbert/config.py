@@ -40,7 +40,7 @@ class DbmConfig(object):
         # torchscript = False,
         # use_bfloat16 = False,
         
-        vocab_size = 4101,
+        vocab_size = 1029, # 4101,
         hidden_size = 768,
         max_position_embeddings = 512,
         type_vocab_size = 2,

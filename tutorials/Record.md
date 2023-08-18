@@ -270,6 +270,38 @@ nohup python -u train.py --data_dir dataset/tmp_data/hard02/train --data_dir_for
 
 
 
+
+## new model
+
+# round 1:
+    lr = 1e-5, lr_sche=exp-decay
+nohup python -u train_esm.py --data_dir dataset/tmp_data/hard02/train --data_dir_for_val dataset/tmp_data/hard02/val --core_num 8 --output_dir new_model_01 --train_batch_size 2 --eval_batch_size 2 --learning_rate 0.00001 --num_train_epochs 300 --do_eval --hidden_size 128 --warmup_epoch 20 --display_steps 100 >new_model_01.log 2>&1 &
+
+# round 2: 
+    update nc pooling(out nc's C=768/2 similar to prot's C)
+    lr = 1e-4, lr_sche=cosine
+nohup python -u train_esm.py --data_dir dataset/tmp_data/hard02/train --data_dir_for_val dataset/tmp_data/hard02/val --core_num 8 --output_dir new_model_02 --train_batch_size 2 --eval_batch_size 2 --learning_rate 0.0001 --num_train_epochs 300 --do_eval --hidden_size 128 --warmup_epoch 20 --display_steps 100 >new_model_02.log 2>&1 &
+
+# round 3: 
+    hard test dataset
+    update nc pooling(out nc's C=768/2 similar to prot's C)
+    lr = 1e-4, lr_sche=cosine
+nohup python -u train_esm.py --data_dir dataset/tmp_data/hard01/train --data_dir_for_val dataset/tmp_data/hard01/val --core_num 8 --output_dir new_model_03 --train_batch_size 2 --eval_batch_size 2 --learning_rate 0.0001 --num_train_epochs 300 --do_eval --hidden_size 128 --warmup_epoch 20 --display_steps 100 >new_model_03.log 2>&1 &
+
+# round 4: 
+    hard test dataset
+    update nc pooling(out nc's C=768/2 similar to prot's C)
+    lr = 1e-5, lr_sche=cosine
+nohup python -u train_esm.py --data_dir dataset/tmp_data/hard01/train --data_dir_for_val dataset/tmp_data/hard01/val --core_num 8 --output_dir new_model_04 --train_batch_size 2 --eval_batch_size 2 --learning_rate 0.00001 --num_train_epochs 120 --do_eval --hidden_size 128 --warmup_epoch 10 --display_steps 100 >new_model_04.log 2>&1 &
+
+
+# round 5: 
+    update nc pooling(out nc's C=768/2 similar to prot's C)
+    lr = 1e-5, lr_sche=cosine
+    mask
+nohup python -u train_esm.py --data_dir dataset/tmp_data/hard02/train --data_dir_for_val dataset/tmp_data/hard02/val --core_num 8 --output_dir new_model_04 --train_batch_size 2 --eval_batch_size 2 --learning_rate 0.00001 --num_train_epochs 300 --do_eval --hidden_size 128 --warmup_epoch 20 --display_steps 100 >new_model_05.log 2>&1 &
+
+
 ```
 
 

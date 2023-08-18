@@ -207,7 +207,11 @@ def add_argument(parser):
   parser.add_argument("--warmup_epoch",
                       default=10,
                       type=int,
-                      help='warmup epoch')   
+                      help='warmup epoch')
+  parser.add_argument("--kmers",
+                      default=5,
+                      type=int,
+                      help='number of kmers')   
 
 class Args:
   data_dir = None
@@ -283,6 +287,7 @@ class Args:
   steps_update_lr = None
   direct_read_cache = None
   warmup_epoch = None
+  kmers = None
 
 args: Args = None
 

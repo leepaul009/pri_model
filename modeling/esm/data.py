@@ -254,6 +254,16 @@ class Alphabet(object):
         return [self.tok_to_idx[tok] for tok in self.tokenize(text)]
 
 
+    def get_special_tokens_mask(self, token_ids) -> List[int]:
+        """
+        Retrieves sequence ids from a token list that has no special tokens added.
+        Returns:
+            A list of integers in the range [0, 1]: 1 for a special token, 0 for a sequence token.
+        """
+        return list(map(lambda x: 1 if x in [self.unk_idx, self.eos_idx, self.cls_idx, self.padding_idx] 
+                        else 0, token_ids))
+
+
 class BatchConverter(object):
     """Callable to convert an unprocessed (labels + strings) batch to a
     processed (labels + tensor) batch.

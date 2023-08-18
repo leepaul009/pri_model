@@ -127,7 +127,7 @@ def get_nc_chemistry(na_jobid, input_nucleotide, fdir):
     nc_feat_tensor[:, dna_cols:] = final_arr
   return nc_feat_tensor
 
-def convert_to_conv_format(nucleotide_sequences: List[str], kmers: int = 6) -> List[str]:
+def convert_to_conv_format(nucleotide_sequences: List[str], kmers: int = 5) -> List[str]:
   output_seqs = []
   for seq in nucleotide_sequences:
     n_out = len(seq) - kmers + 1
@@ -215,7 +215,7 @@ def pri_get_instance(input_complex, args, other_inputs):
     nucleotide_sequences = input_nucleotide.split('|')
   else:
     nucleotide_sequences = [input_nucleotide]
-  seqs_kmers = convert_to_conv_format(nucleotide_sequences)
+  seqs_kmers = convert_to_conv_format(nucleotide_sequences, kmers=args.kmers)
   
   
   if not args.use_deep_emb:
@@ -256,6 +256,7 @@ def pri_get_instance(input_complex, args, other_inputs):
   mapping.update(dict(
     exp_id = input_complex["exp_id"],
     protein = input_protein,
+    nc_sequences = nucleotide_sequences,
     seqs_kmers = seqs_kmers,
     aa_attributes = aa_attributes,  # (num_aa, 20)
     aa_pwm = aa_pwm_feature,        # (num_aa, ?)

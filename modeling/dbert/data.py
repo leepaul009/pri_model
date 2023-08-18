@@ -102,14 +102,14 @@ class Alphabet(object):
           return BatchConverter(self, truncation_seq_length)
 
   @classmethod
-  def from_architecture(cls) -> "Alphabet":
+  def from_architecture(cls, vocab_file: str) -> "Alphabet":
       standard_toks = proteinseq_toks["toks"]
       prepend_toks = ("<pad>", "<unk>", "<cls>", "<sep>")
       append_toks = ("<mask>",)
       prepend_bos = True
       append_eos = True
       use_msa = False
-      vocab_file = 'dataset/checkpoints/dvocab.txt'
+      # vocab_file = 'dataset/checkpoints/dvocab.txt'
       return cls(vocab_file, standard_toks, prepend_toks, append_toks, prepend_bos, append_eos, use_msa)
 
   def _tokenize(self, text) -> List[str]:
@@ -239,6 +239,16 @@ class Alphabet(object):
               num_pieces = int(len(token_ids_0)//510) + 1
               return (len(cls + token_ids_0 + sep) + 2*(num_pieces-1)) * [0]
       return len(cls + token_ids_0 + sep) * [0] + len(token_ids_1 + sep) * [1]
+
+
+  def get_special_tokens_mask(self, token_ids_0) -> List[int]:
+    """
+    Retrieves sequence ids from a token list that has no special tokens added.
+    Returns:
+        A list of integers in the range [0, 1]: 1 for a special token, 0 for a sequence token.
+    """
+    return list(map(lambda x: 1 if x in [self.sep_idx, self.cls_idx, self.padding_idx] else 0, token_ids_0))
+
 
 
 class BatchConverter(object):

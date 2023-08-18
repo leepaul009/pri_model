@@ -50,9 +50,7 @@ def test(model, dataloader, post_process, epoch, device, args):
       post_process.append(metrics, post_out, pred, batch)
   post_process.display(metrics, epoch)
 
-def val(model, dataloader, post_process, epoch, device, args):
-
-  # model.to(device)
+def val(model, dataloader, post_process, epoch, device, args, gmetrics):
   model.eval()
 
   iter_bar = tqdm(dataloader, desc='Iter (loss=X.XXX)')
@@ -65,15 +63,20 @@ def val(model, dataloader, post_process, epoch, device, args):
       post_process.append(metrics, post_out, pred, batch)
   
   post_process.display(metrics, epoch)
-  # mean_loss = 0
-  # print("validation result: epoch={} loss={}".format(epoch, mean_loss))
-
-  # for training of next epoch
   model.train()
+  
+  # save model with min validation loss
+  loss_val = metrics['loss']
+  if loss_val < gmetrics['min_eval_loss']:
+    gmetrics['save'] = True
+  # updateOutput should be run after display
+  post_process.updateOutput(epoch, loss_val, metrics, gmetrics)
+  gmetrics['min_eval_loss'] = min(loss_val, gmetrics['min_eval_loss'])
+  
 
 def train_one_epoch(model, train_dataloader, val_dataloader, 
                     optimizer,
-                    post_process, device, i_epoch, args):
+                    post_process, device, i_epoch, args, gmetrics):
   save_iters = 1000
   save_dir = args.output_dir
   metrics = dict()
@@ -95,20 +98,23 @@ def train_one_epoch(model, train_dataloader, val_dataloader,
     if is_main_process and step % args.display_steps == 0:
       end_time = time.time()
       curr_lr = optimizer.param_groups[0]['lr']
-      post_process.display(metrics, i_epoch, step, curr_lr, end_time - start_time)
+      post_process.display(metrics, 
+        i_epoch, step, curr_lr, end_time - start_time, training=True)
       
-    if is_main_process and step > 5000 and step % save_iters == 0:
-      save_ckpt(model, optimizer, save_dir, i_epoch, step)
+    # if is_main_process and step > 5000 and step % save_iters == 0:
+    #   save_ckpt(model, optimizer, save_dir, i_epoch, step)
     
     if args.step_lr:
       lr_decay_by_steps(args, steps_sz, step, optimizer)
 
   # do eval after an epoch training
   if args.do_eval:
-    val(model, val_dataloader, post_process, i_epoch, device, args)
+    val(model, val_dataloader, post_process, i_epoch, device, args, gmetrics)
 
-  if is_main_process:
-    save_ckpt(model, optimizer, save_dir, i_epoch, step)
+  # if is_main_process:
+  #   save_ckpt(model, optimizer, save_dir, i_epoch, step)
+  if is_main_process and gmetrics['save']:
+    save_ckpt(model, optimizer, save_dir, i_epoch, step, overwrite=True)
 
 def main():
   parser = argparse.ArgumentParser()
@@ -128,19 +134,20 @@ def main():
 
 
   path_esm2_cp = "dataset/checkpoints/esm2_t6_8M_UR50D.pt"
-  checkpoint = torch.load(path_esm2_cp)
+  checkpoint = torch.load(path_esm2_cp, map_location=torch.device('cpu'))
   cfg = checkpoint['cfg_model']
   esm2_state = checkpoint['model']
   # esm2_state.update(checkpoint["regression"])
   
-  path_dbm_cp = 'dataset/checkpoints/dnabert_t12.pt'
-  checkpoint = torch.load(path_dbm_cp)
+  path_dbm_cp = 'dataset/checkpoints/dnabert5_t12.pt'
+  checkpoint = torch.load(path_dbm_cp, map_location=torch.device('cpu'))
   dbm_state = checkpoint['model']
 
   alphabet = Alphabet.from_architecture("ESM-1b")
-  dalphabet = DAlphabet.from_architecture()
+  vocab_file = 'dataset/checkpoints/dvocab{}.txt'.format(args.kmers)
+  dalphabet = DAlphabet.from_architecture(vocab_file)
   basic_batch_convert = BasicBatchConvert(alphabet, dalphabet)
-  model = GlobalNet(args, cfg, alphabet)
+  model = GlobalNet(args, cfg, alphabet, dalphabet)
 
   def update_state_dict(state_dict):
     state_dict = {'esm2.' + name : param for name, param in state_dict.items()}
@@ -182,13 +189,14 @@ def main():
     print("load ckpt from {} and train from epoch {}".format(ckpt_path, start_epoch))
 
 
+  ######
   # use 20 epoch from init_lr to 0
-  # lr_scheduler = WarmupCosineAnnealingLR(
-  #   optimizer, 
-  #   T_max=args.num_train_epochs - args.warmup_epoch, 
-  #   warmup_epochs=args.warmup_epoch)
-  lr_scheduler = WarmupExponentialLR(
-    optimizer, gamma=0.95, warmup_epochs=args.warmup_epoch)
+  lr_scheduler = WarmupCosineAnnealingLR(
+    optimizer, 
+    T_max=args.num_train_epochs - args.warmup_epoch, 
+    warmup_epochs=args.warmup_epoch)
+  # lr_scheduler = WarmupExponentialLR(
+  #   optimizer, gamma=0.95, warmup_epochs=args.warmup_epoch)
   
   
   if args.do_test:
@@ -238,6 +246,13 @@ def main():
       collate_fn=basic_batch_convert,
       pin_memory=False)
 
+    gmetrics = {
+      'save': False, 
+      'min_eval_loss': 1e6,
+      'val_info': dict(),
+      'output': None,
+    }
+    
     for i_epoch in range(int(start_epoch), int(start_epoch + args.num_train_epochs)):
 
       # learning_rate_decay(args, i_epoch, optimizer)
@@ -247,7 +262,8 @@ def main():
 
       train_sampler.set_epoch(i_epoch)
       
-      train_one_epoch(model, train_dataloader, val_dataloader, optimizer, post_process, device, i_epoch, args)
+      train_one_epoch(model, train_dataloader, val_dataloader, 
+                      optimizer, post_process, device, i_epoch, args, gmetrics)
 
       lr_scheduler.step()
       
