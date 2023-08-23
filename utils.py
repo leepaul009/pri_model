@@ -27,191 +27,85 @@ from torch import Tensor
 def add_argument(parser):
   assert isinstance(parser, argparse.ArgumentParser)
   # Required parameters
-  parser.add_argument("--use_cpu",
-                      action='store_true',
-                      help="Whether to run training.")
-  parser.add_argument("--do_train",
-                      action='store_true',
-                      help="Whether to run training.")
-  parser.add_argument("-e", "--do_eval",
-                      action='store_true',
-                      help="Whether to run eval on the dev set.")
-  parser.add_argument("--do_test",
-                      action='store_true')
-
-  parser.add_argument("--data_name",
-                      default='pri_data',
-                      type=str)
+  parser.add_argument("--use_cpu", action='store_true', help="Whether to run training on CPU.")
+  parser.add_argument("--no_cuda", action='store_true', help="Whether not to use CUDA when available")
+  ### mode
+  parser.add_argument("--do_train", action='store_true',)
+  parser.add_argument("-e", "--do_eval", action='store_true', help="Whether to run eval on the dev set.")
+  parser.add_argument("--do_test", action='store_true')
+  parser.add_argument("--debug", action='store_true')
+  parser.add_argument("--local_rank", type=int, default=0)
+  ########################################################
+  ### dataset and trainning settings
+  ########################################################
+  parser.add_argument("--data_name", default='pri_data', type=str)
+  ### data dir
+  parser.add_argument("--data_dir", default='data/pri_data/train/', type=str)
+  parser.add_argument("--data_dir_for_val", default='data/pri_data/val/', type=str)
+  parser.add_argument("--data_dir_for_test", default='data/pri_data/test/', type=str)
+  parser.add_argument("--direct_read_cache", action='store_true', help='set to directly read cache input tmp file rather than generate and read')
+  ### batch size
+  parser.add_argument("--core_num", default=1, type=int)
+  parser.add_argument("--train_batch_size", default=32, type=int, help="Total batch size for training.")
+  parser.add_argument("--eval_batch_size", default=32, type=int, help="Total batch size for eval.")
+  parser.add_argument("--test_batch_size", default=32, type=int, help="Total batch size for test.")
+  parser.add_argument("--resume", action='store_true', help="Whether to run resume.")
+  parser.add_argument("--use_repeat_sampler", action='store_true', help='use repeat sampler to achieve data balance')
+  ### training settings and schedular
+  parser.add_argument("--num_train_epochs", default=100.0, type=float, help="Total number of training epochs to perform.")
+  parser.add_argument("--learning_rate", default=0.001, type=float, help="The initial learning rate for Adam.")
+  parser.add_argument("--weight_decay", default=0.01, type=float, help="The weight decay rate for Adam.")
+  parser.add_argument("--warmup_epoch", default=10, type=int, help='warmup epoch')
+  parser.add_argument("--step_lr", action='store_true', help='set to update lr by steps')
+  parser.add_argument("--steps_update_lr", default=2000, type=int, help='update lr by setting steps')
   
-  parser.add_argument("--label_bin",
-                      action='store_true',
-                      help="Whether to run label_bin.")
-
-  parser.add_argument("--data_dir",
-                      default='data/pri_data/train/',
-                      type=str)
-  parser.add_argument("--data_dir_for_val",
-                      default='data/pri_data/val/',
-                      type=str)
-  parser.add_argument("--data_dir_for_test",
-                      default='data/pri_data/test/',
-                      type=str)
+  parser.add_argument("--resume_path", default='', type=str)
+  parser.add_argument("--model_recover_path", default=None, type=str)
+  ### output and display
+  parser.add_argument("--display_steps", default=10, type=int)
   parser.add_argument("--output_dir", default="tmp/", type=str)
   parser.add_argument("--log_dir", default=None, type=str)
   parser.add_argument("--temp_file_dir", default=None, type=str)
+  parser.add_argument('--seed', type=int, default=42, help="random seed for initialization")
+  ########################################################
+  ### input format and model
+  ########################################################
+  ### input features
+  parser.add_argument("--pwm_type", default='', type=str, help='use pwm feature as input, and choose pwm type')
+  parser.add_argument("--use_chemistry", action='store_true', help='use NC chemistry feature as input')
+  parser.add_argument("--use_prot_chm_feature", action='store_true', help='use PROT chemistry feature as input')
+  parser.add_argument("--kmers", default=5, type=int, help='set number of kmers to kmers-input and embedding-layer')
+  ### use deep-embedding from other papers
+  parser.add_argument("--use_deep_emb", action='store_true', help="Whether not to use embedding trained from DL")
+  parser.add_argument("--prot_emb_size", default=2560, type=int)
+  parser.add_argument("--nc_emb_size", default=768, type=int)
+  ### model and target
+  parser.add_argument("--hidden_size", default=128, type=int)
+  parser.add_argument("--no_sub_graph", action='store_true')
+  parser.add_argument("--freeze_layer", default=0, type=int)
+  parser.add_argument("--label_bin", action='store_true', help="use distributed regression label.")
 
-  parser.add_argument("--resume",
-                      action='store_true',
-                      help="Whether to run resume.")
-  parser.add_argument("--resume_path",
-                      default='',
-                      type=str)
-  parser.add_argument("--train_batch_size",
-                      default=32,
-                      type=int,
-                      help="Total batch size for training.")
-  parser.add_argument("--eval_batch_size",
-                      default=32,
-                      type=int,
-                      help="Total batch size for eval.")
-  parser.add_argument("--test_batch_size",
-                      default=32,
-                      type=int,
-                      help="Total batch size for test.")
-  parser.add_argument("--model_recover_path",
-                      default=None,
-                      type=str)
-  parser.add_argument("--learning_rate", default=0.001, type=float,
-                      help="The initial learning rate for Adam.")
-  parser.add_argument("--weight_decay",
-                      default=0.01,
-                      type=float,
-                      help="The weight decay rate for Adam.")
-  parser.add_argument("--num_train_epochs",
-                      default=100.0,
-                      type=float,
-                      help="Total number of training epochs to perform.")
-  parser.add_argument('--seed',
-                      type=int,
-                      default=42,
-                      help="random seed for initialization")
-  parser.add_argument("--no_cuda",
-                      action='store_true',
-                      help="Whether not to use CUDA when available")
-  parser.add_argument("--hidden_size",
-                      default=128,
-                      type=int)
 
-  parser.add_argument("--use_deep_emb",
-                      action='store_true',
-                      help="Whether not to use embedding trained from DL")
-  parser.add_argument("--prot_emb_size",
-                      default=2560,
-                      type=int)
-  parser.add_argument("--nc_emb_size",
-                      default=768,
-                      type=int)
-
-  parser.add_argument("--hidden_dropout_prob",
-                      default=0.1,
-                      type=float)
-  parser.add_argument("--sub_graph_depth",
-                      default=3,
-                      type=int)
-  parser.add_argument("--global_graph_depth",
-                      default=1,
-                      type=int)
-  parser.add_argument("--debug",
-                      action='store_true')
-  parser.add_argument("--initializer_range",
-                      default=0.02,
-                      type=float)
-  parser.add_argument("--sub_graph_batch_size",
-                      default=8000,
-                      type=int) # useless
-  parser.add_argument("-d", "--distributed_training",
-                      nargs='?',
-                      default=8,
-                      const=4,
-                      type=int)
-  parser.add_argument("--cuda_visible_device_num",
-                      default=None,
-                      type=int)
-  # parser.add_argument("--use_map",
-  #                     action='store_true')
-  parser.add_argument("--reuse_temp_file",
-                      action='store_true')
-  # parser.add_argument("--old_version",
-  #                     action='store_true')
-
-  parser.add_argument("--no_sub_graph",
-                      action='store_true')
-
-  parser.add_argument("--other_params",
-                      nargs='*',
-                      default=[],
-                      type=str)
-  parser.add_argument("-ep", "--eval_params",
-                      nargs='*',
-                      default=[],
-                      type=str)
-  parser.add_argument("-tp", "--train_params",
-                      nargs='*',
-                      default=[],
-                      type=str)
-
-  parser.add_argument("--core_num",
-                      default=1,
-                      type=int)
-  parser.add_argument("--visualize",
-                      action='store_true')
-  parser.add_argument("--attention_decay",
-                      action='store_true')
-
-  parser.add_argument("--local_rank", type=int, default=0)
-
-  ## input features
-  parser.add_argument("--pwm_type",
-                      default='',
-                      type=str,
-                      help='use pwm feature as input, and choose pwm type')
-  parser.add_argument("--use_chemistry",
-                      action='store_true',
-                      help='use chemistry feature as input')
-  parser.add_argument("--use_prot_chm_feature",
-                      action='store_true',
-                      help='use chemistry feature as input')
-  parser.add_argument("--use_repeat_sampler",
-                      action='store_true',
-                      help='use chemistry feature as input')
-  parser.add_argument("--display_steps",
-                      default=10,
-                      type=int)
-
+  ### might be useless in future
+  parser.add_argument("--hidden_dropout_prob", default=0.1, type=float)
+  parser.add_argument("--sub_graph_depth", default=3, type=int)
+  parser.add_argument("--global_graph_depth", default=1, type=int)
+  parser.add_argument("--initializer_range", default=0.02, type=float)
+  parser.add_argument("--sub_graph_batch_size", default=8000, type=int) # useless
+  parser.add_argument("-d", "--distributed_training", nargs='?', default=8, const=4, type=int)
+  parser.add_argument("--cuda_visible_device_num", default=None, type=int)
+  parser.add_argument("--reuse_temp_file", action='store_true')
+  parser.add_argument("--other_params", nargs='*', default=[], type=str)
+  parser.add_argument("-ep", "--eval_params", nargs='*', default=[], type=str)
+  parser.add_argument("-tp", "--train_params", nargs='*', default=[], type=str)
+  parser.add_argument("--visualize", action='store_true')
+  parser.add_argument("--attention_decay", action='store_true')
   # parser.add_argument('--lr_sch',
   #                     default='no',
   #                     const='no',
   #                     nargs='?',
   #                     choices=['cos', 'step', 'no'],
   #                     help='choose lr schedular (default: %(default)s)')
-  parser.add_argument("--step_lr",
-                      action='store_true',
-                      help='set to update lr by steps')
-  parser.add_argument("--steps_update_lr",
-                      default=2000,
-                      type=int,
-                      help='update lr by setting steps')   
-  parser.add_argument("--direct_read_cache",
-                      action='store_true',
-                      help='set to directly read cache input tmp file rather than generate and read')
-  parser.add_argument("--warmup_epoch",
-                      default=10,
-                      type=int,
-                      help='warmup epoch')
-  parser.add_argument("--kmers",
-                      default=5,
-                      type=int,
-                      help='number of kmers')   
 
 class Args:
   data_dir = None
@@ -288,8 +182,44 @@ class Args:
   direct_read_cache = None
   warmup_epoch = None
   kmers = None
+  freeze_layer = None
+  weight_decay = None
 
 args: Args = None
+
+
+def de_merge_tensors(tensor: Tensor, lengths):
+    return [tensor[i, :lengths[i]] for i in range(len(lengths))]
+
+def merge_tensors(tensors: List[torch.Tensor], device, hidden_size=None) -> Tuple[Tensor, List[int]]:
+    """
+    merge a list of tensors into a tensor
+    """
+    lengths = []
+    # hidden_size = args.hidden_size if hidden_size is None else hidden_size
+    if hidden_size is None:
+        hidden_size = tensors[0].shape[-1]
+    for tensor in tensors:
+        lengths.append(tensor.shape[0] if tensor is not None else 0)
+    res = torch.zeros([len(tensors), max(lengths), hidden_size], device=device)
+    for i, tensor in enumerate(tensors):
+        if tensor is not None:
+            res[i][:tensor.shape[0]] = tensor
+    return res, lengths
+
+def batch_list_to_batch_tensors(batch):
+    return [each for each in batch] # batch is a list of dicts
+
+def get_from_mapping(mapping: List[Dict], key=None):
+    # if key is None:
+    #     line_context = inspect.getframeinfo(inspect.currentframe().f_back).code_context[0]
+    #     key = line_context.split('=')[0].strip()
+    return [each[key] for each in mapping]
+
+
+##################################################################
+### not used yet
+##################################################################
 
 logger = None
 
@@ -465,33 +395,6 @@ def logging(*inputs, prob=1.0, type='1', is_json=False, affi=True, sep=' ', to_s
             print(*tuple(inputs), file=fout, sep=sep)
             print(file=fout)
 
-def de_merge_tensors(tensor: Tensor, lengths):
-    return [tensor[i, :lengths[i]] for i in range(len(lengths))]
-
-def merge_tensors(tensors: List[torch.Tensor], device, hidden_size=None) -> Tuple[Tensor, List[int]]:
-    """
-    merge a list of tensors into a tensor
-    """
-    lengths = []
-    # hidden_size = args.hidden_size if hidden_size is None else hidden_size
-    if hidden_size is None:
-        hidden_size = tensors[0].shape[-1]
-    for tensor in tensors:
-        lengths.append(tensor.shape[0] if tensor is not None else 0)
-    res = torch.zeros([len(tensors), max(lengths), hidden_size], device=device)
-    for i, tensor in enumerate(tensors):
-        if tensor is not None:
-            res[i][:tensor.shape[0]] = tensor
-    return res, lengths
-
-def batch_list_to_batch_tensors(batch):
-    return [each for each in batch] # batch is a list of dicts
-
-def get_from_mapping(mapping: List[Dict], key=None):
-    # if key is None:
-    #     line_context = inspect.getframeinfo(inspect.currentframe().f_back).code_context[0]
-    #     key = line_context.split('=')[0].strip()
-    return [each[key] for each in mapping]
 
 
 

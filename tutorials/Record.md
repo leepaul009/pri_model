@@ -298,10 +298,44 @@ nohup python -u train_esm.py --data_dir dataset/tmp_data/hard01/train --data_dir
 # round 5: 
     update nc pooling(out nc's C=768/2 similar to prot's C)
     lr = 1e-5, lr_sche=cosine
-    mask
-nohup python -u train_esm.py --data_dir dataset/tmp_data/hard02/train --data_dir_for_val dataset/tmp_data/hard02/val --core_num 8 --output_dir new_model_04 --train_batch_size 2 --eval_batch_size 2 --learning_rate 0.00001 --num_train_epochs 300 --do_eval --hidden_size 128 --warmup_epoch 20 --display_steps 100 >new_model_05.log 2>&1 &
+    bert mask
+nohup python -u train_esm.py --data_dir dataset/tmp_data/hard02/train --data_dir_for_val dataset/tmp_data/hard02/val --core_num 8 --output_dir new_model_05 --train_batch_size 2 --eval_batch_size 2 --learning_rate 0.00001 --num_train_epochs 300 --do_eval --hidden_size 128 --warmup_epoch 20 --display_steps 100 >new_model_05.log 2>&1 &
 
 
+# round 6: 
+    lr = 5e-4, lr_sche=cosine
+    bert mask
+    inter-net
+    freeze first 2 tf layers
+nohup python -u train_esm.py --data_dir dataset/tmp_data/hard02/train --data_dir_for_val dataset/tmp_data/hard02/val --core_num 8 --output_dir new_model_06 --train_batch_size 4 --eval_batch_size 4 --learning_rate 0.0005 --num_train_epochs 150 --do_eval --hidden_size 128 --freeze_layer 1 --warmup_epoch 10 --display_steps 100 >new_model_06.log 2>&1 &
+
+
+# round 7: 
+    lr = 5e-5, lr_sche=cosine
+    bert mask
+    inter-net
+    freeze first 3 tf layers
+
+nohup python -u train_esm.py --data_dir dataset/tmp_data/hard02/train --data_dir_for_val dataset/tmp_data/hard02/val --core_num 8 --output_dir new_model_07 --train_batch_size 4 --eval_batch_size 4 --learning_rate 0.00005 --weight_decay 0.03 --num_train_epochs 300 --do_eval --hidden_size 1024 --freeze_layer 2 --warmup_epoch 5 --display_steps 100 >new_model_07.log 2>&1 &
+
+
+# round 8: 
+    lr = 1e-5, lr_sche=cosine
+    - bert mask
+    inter-net
+    do not freeze
+
+nohup python -u train_esm.py --data_dir dataset/tmp_data/hard02/train --data_dir_for_val dataset/tmp_data/hard02/val --core_num 8 --output_dir new_model_08 --train_batch_size 2 --eval_batch_size 2 --learning_rate 0.00001 --weight_decay 0.02 --num_train_epochs 300 --do_eval --hidden_size 1024 --freeze_layer -1 --warmup_epoch 5 --display_steps 100 >new_model_08.log 2>&1 &
+
+
+# round 9: 
+    lr = 1e-5, lr_sche=cosine
+    - bert mask
+    inter-net
+    do not freeze
+    use_repeat_sampler
+
+nohup python -u train_esm.py --data_dir dataset/tmp_data/hard02/train --data_dir_for_val dataset/tmp_data/hard02/val --core_num 8 --output_dir new_model_09 --train_batch_size 2 --eval_batch_size 2 --use_repeat_sampler --learning_rate 0.00001 --weight_decay 0.02 --num_train_epochs 300 --do_eval --hidden_size 1024 --freeze_layer -1 --warmup_epoch 5 --display_steps 100 >new_model_09.log 2>&1 &
 ```
 
 

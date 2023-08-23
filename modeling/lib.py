@@ -239,11 +239,11 @@ class CrossAttention(GlobalGraph):
 
 
 class GlobalGraphRes(nn.Module):
-    def __init__(self, hidden_size):
+    def __init__(self, hidden_size, use_attention_decay=False):
         super(GlobalGraphRes, self).__init__()
         # internal dim = hidden/2
-        self.global_graph = GlobalGraph(hidden_size, hidden_size // 2)
-        self.global_graph2 = GlobalGraph(hidden_size, hidden_size // 2)
+        self.global_graph = GlobalGraph(hidden_size, hidden_size // 2, use_attention_decay=use_attention_decay)
+        self.global_graph2 = GlobalGraph(hidden_size, hidden_size // 2, use_attention_decay=use_attention_decay)
         
         # self.global_graph = GlobalGraph(hidden_size, hidden_size)
         # self.global_graph2 = GlobalGraph(hidden_size, hidden_size)
