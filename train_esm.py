@@ -113,7 +113,12 @@ def train_one_epoch(model, train_dataloader, val_dataloader,
     val(model, val_dataloader, post_process, i_epoch, device, args, gmetrics)
 
   if is_main_process() and gmetrics['save']:
+    print("save model with best performance")
     save_ckpt(model, optimizer, save_dir, i_epoch, step, overwrite=True)
+  
+  if is_main_process() and args.save_model_epoch:
+    print("save model per epoch")
+    save_ckpt(model, optimizer, save_dir, i_epoch, step, overwrite=False)
 
 
 def main():
@@ -177,11 +182,7 @@ def main():
   ######################################### 
   if not args.do_test:
     ### build training dataset
-    if args.data_name == 'hox_data':
-      print("use hox training dataset")
-      train_dataset = PriDatasetExt(args, args.data_dir, args.train_batch_size)
-    else:
-      train_dataset = PriDataset(args, args.data_dir, args.train_batch_size)
+    train_dataset = PriDataset(args, args.data_dir, args.train_batch_size)
 
     ### build sampler
     if args.use_repeat_sampler:
@@ -198,11 +199,7 @@ def main():
                                   collate_fn = basic_batch_convert)
     
     ### build training dataset
-    if args.data_name == 'hox_data':
-      print("use hox validation dataset")
-      val_dataset  = PriDatasetExt(args, args.data_dir_for_val, args.eval_batch_size)
-    else:
-      val_dataset  = PriDataset(args, args.data_dir_for_val, args.eval_batch_size)
+    val_dataset    = PriDataset(args, args.data_dir_for_val, args.eval_batch_size)
     val_sampler    = SequentialSampler(val_dataset)
     val_dataloader = DataLoader(val_dataset, 
                                 sampler = val_sampler,

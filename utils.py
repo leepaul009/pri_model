@@ -55,13 +55,14 @@ def add_argument(parser):
   parser.add_argument("--num_train_epochs", default=100.0, type=float, help="Total number of training epochs to perform.")
   parser.add_argument("--learning_rate", default=0.001, type=float, help="The initial learning rate for Adam.")
   parser.add_argument("--weight_decay", default=0.01, type=float, help="The weight decay rate for Adam.")
-  parser.add_argument("--warmup_epoch", default=10, type=int, help='warmup epoch')
+  parser.add_argument("--warmup_epoch", default=0, type=int, help='warmup epoch')
   parser.add_argument("--step_lr", action='store_true', help='set to update lr by steps')
   parser.add_argument("--steps_update_lr", default=2000, type=int, help='update lr by setting steps')
   
   parser.add_argument("--resume_path", default='', type=str)
   parser.add_argument("--model_recover_path", default=None, type=str)
   ### output and display
+  parser.add_argument("--save_model_epoch", action='store_true')
   parser.add_argument("--display_steps", default=10, type=int)
   parser.add_argument("--output_dir", default="tmp/", type=str)
   parser.add_argument("--log_dir", default=None, type=str)
@@ -82,7 +83,7 @@ def add_argument(parser):
   ### model and target
   parser.add_argument("--hidden_size", default=128, type=int)
   parser.add_argument("--no_sub_graph", action='store_true')
-  parser.add_argument("--freeze_layer", default=0, type=int)
+  parser.add_argument("--freeze_layer", default=-1, type=int)
   parser.add_argument("--label_bin", action='store_true', help="use distributed regression label.")
 
 
@@ -184,6 +185,7 @@ class Args:
   kmers = None
   freeze_layer = None
   weight_decay = None
+  save_model_epoch = None
 
 args: Args = None
 

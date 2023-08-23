@@ -254,7 +254,7 @@ def pri_get_instance(input_complex, args, other_inputs):
   
   mapping = {}
   mapping.update(dict(
-    exp_id = input_complex["exp_id"],
+    exp_id = input_complex["exp_id"], # must
     protein = input_protein,
     nc_sequences = nucleotide_sequences,
     seqs_kmers = seqs_kmers,
@@ -276,11 +276,11 @@ def pri_get_instance(input_complex, args, other_inputs):
   ))
   return mapping
 
+
 def hox_get_instance(input_complex, args, other_inputs):
-  input_protein = input_complex["protein_sequence"] # string
+  input_protein    = input_complex["protein_sequence"] # string
   input_nucleotide = input_complex["nucleotide_sequence"] # string
-  # label_dG = input_complex['zscore']
-  label_dG = input_complex['dG'] if 'dG' in input_complex else input_complex['zscore']
+  label_dG         = input_complex['dG'] if 'dG' in input_complex else input_complex['zscore']
 
   protein_sequences = process_sequence_without_coordinates(input_protein)
   num_aa = len(protein_sequences)
@@ -337,7 +337,8 @@ def hox_get_instance(input_complex, args, other_inputs):
   else:
     nucleotide_sequences = [input_nucleotide]
   
-  seqs_kmers = convert_to_conv_format(nucleotide_sequences)
+  seqs_kmers = convert_to_conv_format(nucleotide_sequences, 
+                                      kmers=args.kmers)
    
   nucleotide_attributes = list()
   for seq in nucleotide_sequences:
@@ -357,6 +358,7 @@ def hox_get_instance(input_complex, args, other_inputs):
   mapping.update(dict(
     exp_id = input_complex["exp_id"],
     protein = input_protein,
+    nc_sequences = None,
     seqs_kmers = seqs_kmers,
     aa_attributes = aa_attributes,  # (num_aa, 20)
     aa_pwm = None,        # (num_aa, 20 or 30)
@@ -373,5 +375,31 @@ def hox_get_instance(input_complex, args, other_inputs):
   ))
   return mapping
 
+
+
+def get_dd_instance(input_complex, args, other_inputs):
+  input_protein    = input_complex["protein_sequence"] # string
+  input_nucleotide = input_complex["nucleotide_sequence"] # string
+  label_dG         = input_complex['dG'] if 'dG' in input_complex else input_complex['zscore']
+
+  ################# get nucleotide features #################
+  # nucleotide_to_index = {'A':0, 'C':1, 'G':2, 'T':3, 'U':3}
+  seqs_kmers = None
+  nucleotide_sequences = None
+  if '|' in input_nucleotide:
+    nucleotide_sequences = input_nucleotide.split('|')
+  else:
+    nucleotide_sequences = [input_nucleotide]
+  
+  seqs_kmers = convert_to_conv_format(nucleotide_sequences, 
+                                      kmers=args.kmers)
+
+  mapping = {}
+  mapping.update(dict(
+    protein     = input_protein, # use by esm
+    seqs_kmers  = seqs_kmers, # used by dbert
+    label       = label_dG,     # float scalar
+  ))
+  return mapping
 
 

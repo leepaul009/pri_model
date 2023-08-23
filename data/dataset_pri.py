@@ -21,7 +21,7 @@ from preprocessing.protein_chemistry import list_aa, \
   nucleotide_to_index, max_num_atoms_in_aa, max_num_prot_chm_feats, \
   pwm_embeding_dims_by_type, is_pwm_type_valid
 
-from data.dataset_instance import pri_get_instance, hox_get_instance
+from data.dataset_instance import pri_get_instance, hox_get_instance, get_dd_instance
 
 
 
@@ -173,9 +173,11 @@ class PriDataset(torch.utils.data.Dataset):
                       if file.endswith("csv") and not file.startswith('.')])
       print("Create dataset to following files, len = {}, first = {}".format(len(files), files[0]))
 
+      data_frame_names = []
       data_frame_list = []
       num_lines = 0
-      for f in files:
+      for i, f in enumerate(files):
+        data_frame_names.append(os.path.basename(f))
         df = pd.read_csv(f, sep='\t')
         if args.debug:
           debug_len = min(120, len(df))
@@ -183,6 +185,8 @@ class PriDataset(torch.utils.data.Dataset):
           print("debug mode: only use {} items".format(debug_len))
         num_lines += len(df)
         data_frame_list.append(df)
+        if args.debug and i == 2:
+          break
       pbar = tqdm(total=num_lines)
 
       queue = multiprocessing.Queue(args.core_num) # inputs container
@@ -193,37 +197,46 @@ class PriDataset(torch.utils.data.Dataset):
         dis_list = []
         while True:
           other_inputs = dict()
-          data_item = queue.get() # get and remove from queue
-          if data_item is None:
+          item = queue.get() # get and remove from queue
+          if item is None:
               break
+          fkey, data_item = item
+
           if args.data_name == 'hox_data':
             instance = hox_get_instance(data_item, args, other_inputs)
+          if args.data_name == 'dna_data':
+            instance = get_dd_instance(data_item, args, other_inputs)
           else:
             instance = pri_get_instance(data_item, args, other_inputs)
+          
           if instance is not None:
-              # data_compress = zlib.compress(pickle.dumps(instance))
-              # res.append(data_compress)
-              # queue_res.put(data_compress)
-              outfdir = os.path.join('data/tmp/')
-              if not os.path.exists(outfdir):
-                os.makedirs(outfdir)
-              outf = os.path.join(outfdir, '{}.pkl'.format(instance['exp_id']))
-              if not os.path.exists(outf) or not args.direct_read_cache:
-                with open(outf, 'wb') as f:
-                  pickle.dump(instance, f)
-              queue_res.put( (outf, instance['label']) )
+            # data_compress = zlib.compress(pickle.dumps(instance))
+            # res.append(data_compress)
+            # queue_res.put(data_compress)
+            tmp_dir = os.path.join(args.output_dir, 'tmp_data')
+            if not os.path.exists(tmp_dir):
+              os.makedirs(tmp_dir)
+            
+            fname = instance['exp_id'] if 'exp_id' in instance else fkey
+            outf = os.path.join(tmp_dir, '{}.pkl'.format(fname))
+            if not os.path.exists(outf) or not args.direct_read_cache:
+              with open(outf, 'wb') as f:
+                pickle.dump(instance, f)
+            queue_res.put( (outf, instance['label']) )
+
           else:
-              queue_res.put(None)
+            queue_res.put(None)
       
       processes = [Process(target=calc_ex_list, args=(queue, queue_res, args,)) 
                     for _ in range(args.core_num)]
       for each in processes:
           each.start()
       
-      for df in data_frame_list:
+      for df_i, df in enumerate(data_frame_list):
         for i in range(len(df)):
           assert df.loc[i] is not None
-          queue.put(df.loc[i])
+          key = str(data_frame_names[df_i]) + '_' + str(i)
+          queue.put( (key, df.loc[i]) )
           pbar.update(1)
 
       # necessary because queue is out-of-order
@@ -239,9 +252,11 @@ class PriDataset(torch.utils.data.Dataset):
       for i in range(num_lines):
         res = queue_res.get()
         if res is not None:
-          t, l = res
-          self.ex_list.append(t)
-          self.labels.append(l)
+          data_path, label = res
+          self.ex_list.append(data_path)
+          # only repeat sampler use labels
+          if args.use_repeat_sampler:
+            self.labels.append(label)
         pbar.update(1)
       pbar.close()
       pass
