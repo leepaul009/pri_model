@@ -44,6 +44,7 @@ def add_argument(parser):
   parser.add_argument("--data_dir_for_val", default='data/pri_data/val/', type=str)
   parser.add_argument("--data_dir_for_test", default='data/pri_data/test/', type=str)
   parser.add_argument("--direct_read_cache", action='store_true', help='set to directly read cache input tmp file rather than generate and read')
+  parser.add_argument("--tmp_dir", default='data/tmp/', type=str)
   ### batch size
   parser.add_argument("--core_num", default=1, type=int)
   parser.add_argument("--train_batch_size", default=32, type=int, help="Total batch size for training.")
@@ -186,6 +187,7 @@ class Args:
   freeze_layer = None
   weight_decay = None
   save_model_epoch = None
+  tmp_dir = None
 
 args: Args = None
 

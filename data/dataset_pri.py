@@ -213,7 +213,7 @@ class PriDataset(torch.utils.data.Dataset):
             # data_compress = zlib.compress(pickle.dumps(instance))
             # res.append(data_compress)
             # queue_res.put(data_compress)
-            tmp_dir = os.path.join(args.output_dir, 'tmp_data')
+            tmp_dir = os.path.join(args.tmp_dir)
             if not os.path.exists(tmp_dir):
               os.makedirs(tmp_dir)
             
