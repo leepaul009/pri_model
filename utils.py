@@ -38,13 +38,14 @@ def add_argument(parser):
   ########################################################
   ### dataset and trainning settings
   ########################################################
+  parser.add_argument("--dataset_type", default='default', type=str)
   parser.add_argument("--data_name", default='pri_data', type=str)
   ### data dir
   parser.add_argument("--data_dir", default='data/pri_data/train/', type=str)
   parser.add_argument("--data_dir_for_val", default='data/pri_data/val/', type=str)
   parser.add_argument("--data_dir_for_test", default='data/pri_data/test/', type=str)
   parser.add_argument("--direct_read_cache", action='store_true', help='set to directly read cache input tmp file rather than generate and read')
-  parser.add_argument("--tmp_dir", default='data/tmp/', type=str)
+  parser.add_argument("--tmp_dir", default='data/tmp/', type=str, help='store tmp data files')
   ### batch size
   parser.add_argument("--core_num", default=1, type=int)
   parser.add_argument("--train_batch_size", default=32, type=int, help="Total batch size for training.")
@@ -59,9 +60,11 @@ def add_argument(parser):
   parser.add_argument("--warmup_epoch", default=0, type=int, help='warmup epoch')
   parser.add_argument("--step_lr", action='store_true', help='set to update lr by steps')
   parser.add_argument("--steps_update_lr", default=2000, type=int, help='update lr by setting steps')
-  
-  parser.add_argument("--resume_path", default='', type=str)
-  parser.add_argument("--model_recover_path", default=None, type=str)
+  parser.add_argument("--big_dataset", action='store_true', help='')
+  parser.add_argument("--big_data_save_step", default=5000, type=int, help='')
+
+  parser.add_argument("--resume_path", default='', type=str) # old
+  parser.add_argument("--model_recover_path", default=None, type=str) # old
   ### output and display
   parser.add_argument("--save_model_epoch", action='store_true')
   parser.add_argument("--display_steps", default=10, type=int)
@@ -113,6 +116,8 @@ class Args:
   data_dir = None
   data_dir_for_val = None
   data_dir_for_test = None
+
+  dataset_type = None
   data_name = None
   data_kind = None
   
@@ -126,7 +131,9 @@ class Args:
   train_batch_size = None
   eval_batch_size = None
   test_batch_size = None
-
+  
+  big_dataset = None
+  big_data_save_step = None
   debug = None
   seed = None
 

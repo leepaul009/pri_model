@@ -104,7 +104,12 @@ def train_one_epoch(model, train_dataloader, val_dataloader,
       
     # if is_main_process() and step > 5000 and step % save_iters == 0:
     #   save_ckpt(model, optimizer, save_dir, i_epoch, step)
-    
+    if args.big_dataset and is_main_process() \
+        and step % args.big_data_save_step == 0:
+      # overwirte a checkpoint every 5000 steps
+      save_ckpt(model, optimizer, save_dir, i_epoch, step, 
+                overwrite=True, cp_name='tmp')
+
     if args.step_lr:
       lr_decay_by_steps(args, steps_sz, step, optimizer)
 
@@ -182,7 +187,10 @@ def main():
   ######################################### 
   if not args.do_test:
     ### build training dataset
-    train_dataset = PriDataset(args, args.data_dir, args.train_batch_size)
+    if args.dataset_type == 'default':
+      train_dataset = PriDataset(args, args.data_dir, args.train_batch_size)
+    else:
+      train_dataset = PriDatasetExt(args, args.data_dir, args.train_batch_size)
 
     ### build sampler
     if args.use_repeat_sampler:
@@ -199,7 +207,10 @@ def main():
                                   collate_fn = basic_batch_convert)
     
     ### build training dataset
-    val_dataset    = PriDataset(args, args.data_dir_for_val, args.eval_batch_size)
+    if args.dataset_type == 'default':
+      val_dataset  = PriDataset(args, args.data_dir_for_val, args.eval_batch_size)
+    else:
+      val_dataset  = PriDatasetExt(args, args.data_dir_for_val, args.eval_batch_size)
     val_sampler    = SequentialSampler(val_dataset)
     val_dataloader = DataLoader(val_dataset, 
                                 sampler = val_sampler,

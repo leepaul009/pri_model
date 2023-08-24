@@ -301,43 +301,46 @@ class PriDatasetExt(torch.utils.data.Dataset):
 
     data_frame_list = []
     num_lines = 0
-    for f in files:
+    for i, f in enumerate(files):
       df = pd.read_csv(f, sep='\t')
       if args.debug:
-        debug_len = min(640, len(df))
+        debug_len = min(120, len(df))
         df = df.loc[:debug_len]
         print("debug mode: only use {} items".format(debug_len))
       num_lines += len(df)
       data_frame_list.append(df)
-    # pbar = tqdm(total=num_lines)
+      if args.debug and i == 2:
+        break
 
     self.merged_df = None
     if len(data_frame_list) > 1:
       self.merged_df = pd.concat(data_frame_list).reset_index()
     else:
       self.merged_df = data_frame_list[0]
-    print("Read all dataframe with length = {}".format(len(self.merged_df)))
-
+    self.length = len(self.merged_df)
+    print("Read all dataframe with length = {}".format( self.length ))
+    
     prot_chm_f = 'dataset/prot_chm_data2.txt'
     prot_chm_df = pd.read_table(prot_chm_f, index_col=0)
     self.other_inputs = dict()
-    # df.loc['G','Steric_parameter']
     self.other_inputs['prot_chm_df'] = prot_chm_df
 
-    if 'dG' in self.merged_df.columns:
-      self.labels = self.merged_df['dG'].values
-    else:
-      self.labels = self.merged_df['zscore'].values
+    if args.use_repeat_sampler:
+      if 'dG' in self.merged_df.columns:
+        self.labels = self.merged_df['dG'].values
+      else:
+        self.labels = self.merged_df['zscore'].values
 
   def __len__(self):
-    # return len(self.ex_list)
-    return len(self.merged_df)
+    return self.length
 
   def __getitem__(self, idx):
     instance = self.merged_df.loc[idx]
 
     if self.args.data_name == 'hox_data':
       output = hox_get_instance(instance,  self.args, self.other_inputs)
+    if self.args.data_name == 'dna_data':
+      output = get_dd_instance(instance, self.args, self.other_inputs)
     else:
       output = pri_get_instance(instance, self.args, self.other_inputs)
     

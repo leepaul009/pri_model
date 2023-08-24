@@ -56,7 +56,7 @@ def learning_rate_decay(args, i_epoch, optimizer, optimizer_2=None):
       p['lr'] *= 0.75
 
 
-def save_ckpt(model, opt, save_dir, epoch, iter, overwrite=False):
+def save_ckpt(model, opt, save_dir, epoch, step, overwrite=False, cp_name=None):
   save_dir = os.path.join(save_dir, "checkpoint")
   if not os.path.exists(save_dir):
     print("Directory {} doesn't exist, create a new.".format(save_dir))
@@ -73,12 +73,17 @@ def save_ckpt(model, opt, save_dir, epoch, iter, overwrite=False):
 
   if not overwrite:
     output_model_file = os.path.join(
-      save_dir, "model.{}.{}.ckpt".format(epoch + 1, iter))
-  else:
+      save_dir, "model.{}.{}.ckpt".format(epoch + 1, step))
+  elif cp_name is None:
     output_model_file = os.path.join(save_dir, "model.ckpt")
+  else:
+    output_model_file = os.path.join(save_dir, "{}.ckpt".format(cp_name))
+  
   print("save checkpoint to {}".format(output_model_file))
   torch.save(
-    {"epoch": epoch + 1, 
+    {
+      "epoch": epoch, 
+      "step": step,
       "state_dict": state_dict, 
       "opt_state": opt.state_dict()},
     output_model_file)
