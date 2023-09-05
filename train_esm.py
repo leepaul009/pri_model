@@ -82,7 +82,7 @@ def train_one_epoch(model, train_dataloader, val_dataloader,
   save_dir = args.output_dir
   metrics = dict()
 
-  steps_sz = len(train_dataloader)
+  all_steps = len(train_dataloader)
 
   for step, batch in enumerate(train_dataloader):
     start_time = time.time()
@@ -111,7 +111,7 @@ def train_one_epoch(model, train_dataloader, val_dataloader,
                 overwrite=True, cp_name='tmp')
 
     if args.step_lr:
-      lr_decay_by_steps(args, steps_sz, step, optimizer)
+      lr_decay_by_steps(args.steps_update_lr, all_steps, step, optimizer)
 
   # do eval after an epoch training
   if args.do_eval:
@@ -173,14 +173,15 @@ def main():
     print("load ckpt from {} and train from epoch {}".format(ckpt_path, start_epoch))
 
   ### learning rate schedular
-  lr_scheduler = WarmupCosineAnnealingLR(
-    optimizer, 
-    eta_min = args.learning_rate * 0.01,
-    T_max = args.num_train_epochs - args.warmup_epoch, # use 20 epoch from init_lr to 0
-    warmup_epochs = args.warmup_epoch)
-  # lr_scheduler = WarmupExponentialLR(
-  #   optimizer, gamma=0.95, warmup_epochs=args.warmup_epoch)
-  
+  if not args.step_lr:
+    lr_scheduler = WarmupCosineAnnealingLR(
+      optimizer, 
+      eta_min = args.learning_rate * 0.01,
+      T_max = args.num_train_epochs - args.warmup_epoch, # use 20 epoch from init_lr to 0
+      warmup_epochs = args.warmup_epoch)
+    # lr_scheduler = WarmupExponentialLR(
+    #   optimizer, gamma=0.95, warmup_epochs=args.warmup_epoch)
+    
   
   #########################################
   ### create data loader
@@ -240,8 +241,8 @@ def main():
 
       train_one_epoch(model, train_dataloader, val_dataloader, 
                       optimizer, post_process, device, i_epoch, args, gmetrics)
-
-      lr_scheduler.step()
+      if not args.step_lr:
+        lr_scheduler.step()
   
   else:
     if args.data_name == 'hox_data':

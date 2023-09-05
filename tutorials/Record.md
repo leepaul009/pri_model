@@ -334,17 +334,55 @@ nohup python -u train_esm.py --data_dir dataset/tmp_data/hard02/train --data_dir
     inter-net
     do not freeze
     use_repeat_sampler
+# get best performance:
+    dataset =  hard02
+    at epoch 237, loss = 0.859, rvalue = 0.6711, rrmse = 3.0079
 
-nohup python -u train_esm.py --data_dir dataset/tmp_data/hard02/train --data_dir_for_val dataset/tmp_data/hard02/val --core_num 8 --output_dir new_model_09 --train_batch_size 2 --eval_batch_size 2 --use_repeat_sampler --learning_rate 0.00001 --weight_decay 0.03 --num_train_epochs 300 --do_eval --hidden_size 1024 --freeze_layer -1 --warmup_epoch 10 --display_steps 100 >new_model_09.log 2>&1 &
-
-
-
-
-
+nohup python -u train_esm.py --data_dir dataset/tmp_data/hard02/train --data_dir_for_val dataset/tmp_data/hard02/val --core_num 8 --output_dir new_model_09 --train_batch_size 2 --eval_batch_size 2 --use_repeat_sampler --learning_rate 0.00001 --weight_decay 0.02 --num_train_epochs 300 --do_eval --hidden_size 1024 --freeze_layer -1 --warmup_epoch 5 --display_steps 100 >new_model_09.log 2>&1 &
 
 
 
+# round 10: 
 
+nohup python -u train_esm.py --data_dir dataset/tmp_data/hard01/train --data_dir_for_val dataset/tmp_data/hard01/val --core_num 8 --output_dir new_model_10 --train_batch_size 2 --eval_batch_size 2 --use_repeat_sampler --learning_rate 0.00001 --weight_decay 0.02 --num_train_epochs 300 --do_eval --hidden_size 1024 --freeze_layer -1 --warmup_epoch 5 --display_steps 100 >new_model_10.log 2>&1 &
+
+
+# round 11: 
+    + mask tokens
+nohup python -u train_esm.py --data_dir dataset/tmp_data/hard01/train --data_dir_for_val dataset/tmp_data/hard01/val --core_num 8 --output_dir new_model_11 --train_batch_size 2 --eval_batch_size 2 --use_repeat_sampler --learning_rate 0.00001 --weight_decay 0.02 --num_train_epochs 300 --do_eval --hidden_size 1024 --freeze_layer -1 --warmup_epoch 5 --display_steps 100 >new_model_11.log 2>&1 &
+
+
+# round 12: 
+    layer 5, dist-sample=0.5
+    at epoch 51, loss = 0.8517, rvalue = 0.6657, rrmse = 2.8475
+
+nohup python -u train_esm.py --data_dir dataset/tmp_data/hard02/train --data_dir_for_val dataset/tmp_data/hard02/val --core_num 8 --output_dir new_model_12 --train_batch_size 2 --eval_batch_size 2 --use_repeat_sampler --learning_rate 0.00001 --weight_decay 0.02 --num_train_epochs 400 --do_eval --hidden_size 1024 --freeze_layer -1 --warmup_epoch 5 --display_steps 100 >new_model_12.log 2>&1 &
+
+
+# round 13: 
+    layer 4, dist-sample=0.5
+    bad, at epoch 229, loss = 0.9911, rvalue = 0.6085, rrmse = 3.8811
+
+nohup python -u train_esm.py --data_dir dataset/tmp_data/hard02/train --data_dir_for_val dataset/tmp_data/hard02/val --core_num 8 --output_dir new_model_13 --train_batch_size 2 --eval_batch_size 2 --use_repeat_sampler --learning_rate 0.00001 --weight_decay 0.02 --num_train_epochs 400 --do_eval --hidden_size 512 --freeze_layer -1 --warmup_epoch 5 --display_steps 100 >new_model_13.log 2>&1 &
+
+# round 14: 
+    layer 5, dist-sample=0.5, MSELoss
+    at epoch 163, loss = 2.907, rvalue = 0.6772, rrmse = 2.907
+
+
+nohup python -u train_esm.py --data_dir dataset/tmp_data/hard02/train --data_dir_for_val dataset/tmp_data/hard02/val --core_num 8 --output_dir new_model_14 --train_batch_size 2 --eval_batch_size 2 --use_repeat_sampler --learning_rate 0.00001 --weight_decay 0.02 --num_train_epochs 400 --do_eval --hidden_size 1024 --freeze_layer -1 --warmup_epoch 5 --display_steps 100 >new_model_14.log 2>&1 &
+
+# round 15: 
+    layer 6, dist-sample=0.5, MSELoss
+    at epoch 28, loss = 3.0588, rvalue = 0.6653, rrmse = 3.0588
+
+nohup python -u train_esm.py --data_dir dataset/tmp_data/hard02/train --data_dir_for_val dataset/tmp_data/hard02/val --core_num 8 --output_dir new_model_15 --train_batch_size 2 --eval_batch_size 2 --use_repeat_sampler --learning_rate 0.00001 --weight_decay 0.02 --num_train_epochs 400 --do_eval --hidden_size 1024 --freeze_layer -1 --warmup_epoch 5 --display_steps 100 >new_model_15.log 2>&1 &
+
+# round 16: 
+    layer 6, dist-sample=0.5, MSELoss, lr = 7e-6
+    at epoch 18, loss = 3.3564, rvalue = 0.6656, rrmse = 3.3564
+
+nohup python -u train_esm.py --data_dir dataset/tmp_data/hard02/train --data_dir_for_val dataset/tmp_data/hard02/val --core_num 8 --output_dir new_model_16 --train_batch_size 2 --eval_batch_size 2 --use_repeat_sampler --learning_rate 0.000007 --weight_decay 0.02 --num_train_epochs 300 --do_eval --hidden_size 1024 --freeze_layer -1 --warmup_epoch 5 --display_steps 100 >new_model_16.log 2>&1 &
 ```
 
 

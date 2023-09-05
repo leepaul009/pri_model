@@ -32,21 +32,18 @@ torch.backends.cudnn.enabled = True
 torch.backends.cudnn.benchmark = True 
 
 
-def lr_decay_by_steps(args, all_steps, step, optimizer):
-  steps_update_lr = args.steps_update_lr
-  cur_lr = None
-  for p in optimizer.param_groups:
-    cur_lr = p['lr']
-    break
-
-  min_lr = 0.0001
+def lr_decay_by_steps(steps_update_lr, all_steps, step, optimizer):
+  # cur_lr = None
+  # for p in optimizer.param_groups:
+  #   cur_lr = p['lr']
+  #   break
   # delta_lr = (args.learning_rate - min_lr) / (all_steps / steps_update_lr)
   # print(( args.learning_rate - min_lr), (all_steps / steps_update_lr), delta_lr )
-
-  if step > 1 and step % steps_update_lr == 0 and cur_lr > min_lr:
+  if step > 1 and step % steps_update_lr == 0:
     for p in optimizer.param_groups:
-      p['lr'] *= 0.99
-    print("step {}, updated lr = {:.5f}, update lr every {} steps".format(step, p['lr'], steps_update_lr))
+      p['lr'] *= 0.993
+    print("step {}, updated lr = {:.5f}, update lr every {} steps"
+      .format(step, p['lr'], steps_update_lr))
 
 
 def learning_rate_decay(args, i_epoch, optimizer, optimizer_2=None):
@@ -156,7 +153,7 @@ def train_one_epoch(model, train_dataloader, val_dataloader,
     #   save_ckpt(model, optimizer, save_dir, i_epoch, step, overwrite=True)
     
     if args.step_lr:
-      lr_decay_by_steps(args, steps_sz, step, optimizer)
+      lr_decay_by_steps(args.steps_update_lr, steps_sz, step, optimizer)
 
   # do eval after an epoch training
   if args.do_eval:

@@ -59,7 +59,7 @@ def add_argument(parser):
   parser.add_argument("--weight_decay", default=0.01, type=float, help="The weight decay rate for Adam.")
   parser.add_argument("--warmup_epoch", default=0, type=int, help='warmup epoch')
   parser.add_argument("--step_lr", action='store_true', help='set to update lr by steps')
-  parser.add_argument("--steps_update_lr", default=2000, type=int, help='update lr by setting steps')
+  parser.add_argument("--steps_update_lr", default=5000, type=int, help='update lr by setting steps')
   parser.add_argument("--big_dataset", action='store_true', help='')
   parser.add_argument("--big_data_save_step", default=5000, type=int, help='')
 

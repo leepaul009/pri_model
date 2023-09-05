@@ -272,6 +272,7 @@ class BatchConverter(object):
     def __init__(self, alphabet, truncation_seq_length: int = None):
         self.alphabet = alphabet
         self.truncation_seq_length = truncation_seq_length
+        self.max_length = None
 
     def __call__(self, raw_batch: Sequence[Tuple[str, str]]):
         # RoBERTa uses an eos token, while ESM-1 does not.
@@ -286,7 +287,11 @@ class BatchConverter(object):
         
         if self.truncation_seq_length: # only keep certain length of seq_str
             seq_encoded_list = [seq_str[:self.truncation_seq_length] for seq_str in seq_encoded_list]
+        
         max_len = max(len(seq_encoded) for seq_encoded in seq_encoded_list)
+        if self.max_length is not None:
+            max_len = self.max_length
+
         tokens = torch.empty(
             (
                 batch_size,
