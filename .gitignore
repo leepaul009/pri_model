@@ -9,6 +9,7 @@ dna_dataset_task_*/
 data/tmp/
 notebook/mmseq/
 
+*.ckpt
 *.npz
 *.fasta
 

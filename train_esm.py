@@ -158,29 +158,32 @@ def main():
         device_ids=[args.local_rank], 
         output_device=args.local_rank)
 
-  ### optimizer
-  optimizer = torch.optim.Adam(
-    model.parameters(), lr=args.learning_rate,
-    betas=(0.9, 0.98), weight_decay=args.weight_decay)
-
   start_epoch = 0
+  start_learning_rate = args.learning_rate
   if args.resume:
     ckpt_path = args.resume_path
-    ckpt = torch.load(ckpt_path, map_location=lambda storage, loc: storage)
+    # ckpt = torch.load(ckpt_path, map_location=lambda storage, loc: storage)
+    ckpt = torch.load(ckpt_path, map_location=torch.device('cpu'))
     load_pretrain(model, ckpt["state_dict"])
     start_epoch = ckpt["epoch"] + 1
     start_step = ckpt["step"] + 1
-    optimizer.load_state_dict(ckpt["opt_state"])
-    print("load ckpt from {} and train from epoch {} and step {}"
-      .format(ckpt_path, start_epoch, start_step))
+    # optimizer.load_state_dict(ckpt["opt_state"])
+    start_learning_rate = ckpt["opt_state"]['param_groups'][0]['lr']
+    print("load ckpt from {} and train from epoch {} and step {} and lr {}"
+      .format(ckpt_path, start_epoch, start_step, start_learning_rate))
 
   model = model.to(device)
-  
+
+  ### optimizer
+  optimizer = torch.optim.Adam(
+    model.parameters(), lr=start_learning_rate,
+    betas=(0.9, 0.98), weight_decay=args.weight_decay)
+
   ### learning rate schedular
   if not args.step_lr:
     lr_scheduler = WarmupCosineAnnealingLR(
       optimizer, 
-      eta_min = args.learning_rate * 0.01,
+      eta_min = start_learning_rate * 0.01,
       T_max = args.num_train_epochs - args.warmup_epoch, # use 20 epoch from init_lr to 0
       warmup_epochs = args.warmup_epoch)
     # lr_scheduler = WarmupExponentialLR(
