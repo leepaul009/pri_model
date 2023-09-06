@@ -147,7 +147,7 @@ def main():
   #########################################
   ### model
   model, basic_batch_convert = build_esm_dbert_model(args)
-  model = model.to(device)
+  # model = model.to(device)
   
   post_process = PostProcess(args.output_dir)
 
@@ -174,6 +174,8 @@ def main():
     print("load ckpt from {} and train from epoch {} and step {}"
       .format(ckpt_path, start_epoch, start_step))
 
+  model = model.to(device)
+  
   ### learning rate schedular
   if not args.step_lr:
     lr_scheduler = WarmupCosineAnnealingLR(
