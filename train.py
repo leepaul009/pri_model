@@ -42,7 +42,7 @@ def lr_decay_by_steps(steps_update_lr, all_steps, step, optimizer):
   if step > 1 and step % steps_update_lr == 0:
     for p in optimizer.param_groups:
       p['lr'] *= 0.993
-    print("step {}, updated lr = {:.5f}, update lr every {} steps"
+    print("step {}, updated lr = {}, update lr every {} steps"
       .format(step, p['lr'], steps_update_lr))
 
 

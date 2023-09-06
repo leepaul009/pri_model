@@ -383,6 +383,14 @@ nohup python -u train_esm.py --data_dir dataset/tmp_data/hard02/train --data_dir
     at epoch 18, loss = 3.3564, rvalue = 0.6656, rrmse = 3.3564
 
 nohup python -u train_esm.py --data_dir dataset/tmp_data/hard02/train --data_dir_for_val dataset/tmp_data/hard02/val --core_num 8 --output_dir new_model_16 --train_batch_size 2 --eval_batch_size 2 --use_repeat_sampler --learning_rate 0.000007 --weight_decay 0.02 --num_train_epochs 300 --do_eval --hidden_size 1024 --freeze_layer -1 --warmup_epoch 5 --display_steps 100 >new_model_16.log 2>&1 &
+
+
+# round 17: 
+    layer 6, dist-sample=0.5, MSELoss, lr = 1e-6
+
+
+nohup python -u train_esm.py --data_dir dataset/tmp_data/hard02/train --data_dir_for_val dataset/tmp_data/hard02/val --core_num 8 --output_dir new_model_17 --train_batch_size 2 --eval_batch_size 2 --use_repeat_sampler --learning_rate 0.000001 --weight_decay 0.02 --num_train_epochs 300 --do_eval --hidden_size 1024 --freeze_layer -1 --warmup_epoch 5 --display_steps 100 >new_model_17.log 2>&1 &
+
 ```
 
 

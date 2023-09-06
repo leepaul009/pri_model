@@ -169,8 +169,10 @@ def main():
     ckpt = torch.load(ckpt_path, map_location=lambda storage, loc: storage)
     load_pretrain(model, ckpt["state_dict"])
     start_epoch = ckpt["epoch"] + 1
+    start_step = ckpt["step"] + 1
     optimizer.load_state_dict(ckpt["opt_state"])
-    print("load ckpt from {} and train from epoch {}".format(ckpt_path, start_epoch))
+    print("load ckpt from {} and train from epoch {} and step {}"
+      .format(ckpt_path, start_epoch, start_step))
 
   ### learning rate schedular
   if not args.step_lr:
