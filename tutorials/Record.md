@@ -391,6 +391,108 @@ nohup python -u train_esm.py --data_dir dataset/tmp_data/hard02/train --data_dir
 
 nohup python -u train_esm.py --data_dir dataset/tmp_data/hard02/train --data_dir_for_val dataset/tmp_data/hard02/val --core_num 8 --output_dir new_model_17 --train_batch_size 2 --eval_batch_size 2 --use_repeat_sampler --learning_rate 0.000001 --weight_decay 0.02 --num_train_epochs 300 --do_eval --hidden_size 1024 --freeze_layer -1 --warmup_epoch 5 --display_steps 100 >new_model_17.log 2>&1 &
 
+
+# round 18:
+    layer 5, dist-sample=0.5, MSELoss, lr = 1e-6
+    use pretrain model from ddataset
+
+nohup python -u train_esm.py --data_dir dataset/tmp_data/hard02/train --data_dir_for_val dataset/tmp_data/hard02/val --core_num 8 --output_dir new_model_18 --train_batch_size 2 --eval_batch_size 2 --use_repeat_sampler --learning_rate 0.000001 --weight_decay 0.02 --num_train_epochs 300 --do_eval --hidden_size 1024 --freeze_layer -1 --warmup_epoch 5 --display_steps 100 --resume --resume_path dataset/checkpoints/pretrain_0906.ckpt  >new_model_18.log 2>&1 &
+
+# round 19:
+    layer 5, dist-sample=0.5, MSELoss, lr = 1e-6
+    use pretrain model from ddataset
+
+nohup python -u train_esm.py --data_dir dataset/tmp_data/hard02/train --data_dir_for_val dataset/tmp_data/hard02/val --core_num 8 --output_dir new_model_19 --train_batch_size 2 --eval_batch_size 2 --use_repeat_sampler --learning_rate 0.000001 --weight_decay 0.02 --num_train_epochs 300 --do_eval --hidden_size 1024 --freeze_layer -1 --warmup_epoch 5 --display_steps 100 --resume --resume_path dataset/checkpoints/pretrain_0906_no_pred_head.ckpt  >new_model_19.log 2>&1 &
+
+
+# round 20:
+    layer 5, dist-sample=0.5, MSELoss, lr = 1e-5
+    use 1e pretrain model from ddataset
+
+nohup python -u train_esm.py --data_dir dataset/tmp_data/hard02/train --data_dir_for_val dataset/tmp_data/hard02/val --core_num 8 --output_dir new_model_20 --train_batch_size 2 --eval_batch_size 2 --use_repeat_sampler --learning_rate 0.00001 --weight_decay 0.02 --num_train_epochs 300 --do_eval --hidden_size 1024 --freeze_layer -1 --warmup_epoch 5 --display_steps 100 --resume --resume_path dataset/checkpoints/pretrain_0906_no_pred_head.ckpt  >new_model_20.log 2>&1 &
+
+
+
+# round 21:
+    layer 5, dist-sample=0.5, MSELoss, lr = 1e-5
+    use 2e pretrain model from ddataset
+
+nohup python -u train_esm.py --data_dir dataset/tmp_data/hard02/train --data_dir_for_val dataset/tmp_data/hard02/val --core_num 8 --output_dir new_model_21 --train_batch_size 2 --eval_batch_size 2 --use_repeat_sampler --learning_rate 0.00001 --weight_decay 0.02 --num_train_epochs 300 --do_eval --hidden_size 1024 --freeze_layer -1 --warmup_epoch 5 --display_steps 100 --resume --resume_path dataset/checkpoints/pretrain_e2_431m_no_pred_head.ckpt  >new_model_21.log 2>&1 &
+
+
+# round 22:
+    layer 5, dist-sample=0.5, MSELoss, lr = 7e-5
+    use 2e pretrain model from ddataset
+
+nohup python -u train_esm.py \
+--data_dir dataset/tmp_data/hard02/train \
+--data_dir_for_val dataset/tmp_data/hard02/val \
+--output_dir new_model_22 \
+--core_num 8 \
+--do_eval \
+--train_batch_size 2 \
+--eval_batch_size 2 \
+--num_train_epochs 300 \
+--use_repeat_sampler \
+--learning_rate 0.00007 \
+--weight_decay 0.02 \
+--hidden_size 1024 \
+--freeze_layer -1 \
+--warmup_epoch 5 \
+--display_steps 100 \
+--resume \
+--resume_path dataset/checkpoints/pretrain_e2_431m_no_pred_head.ckpt \
+>new_model_22.log 2>&1 &
+
+# round 23:
+    layer 5, dist-sample=0.5, MSELoss, lr = 2e-5, epoch 400
+    use 2e pretrain model from ddataset
+
+nohup python -u train_esm.py \
+--data_dir dataset/tmp_data/hard02/train \
+--data_dir_for_val dataset/tmp_data/hard02/val \
+--output_dir new_model_23 \
+--core_num 8 \
+--do_eval \
+--train_batch_size 2 \
+--eval_batch_size 2 \
+--num_train_epochs 400 \
+--use_repeat_sampler \
+--learning_rate 0.00002 \
+--weight_decay 0.02 \
+--hidden_size 1024 \
+--freeze_layer -1 \
+--warmup_epoch 5 \
+--display_steps 100 \
+--resume \
+--resume_path dataset/checkpoints/pretrain_e2_431m_no_pred_head.ckpt \
+>new_model_23.log 2>&1 &
+
+
+
+
+
+
+### debug
+
+nohup python -u train_esm.py \
+--debug \
+--data_dir dataset/tmp_data/hard02/train \
+--data_dir_for_val dataset/tmp_data/hard02/val \
+--core_num 1 \
+--output_dir debug \
+--train_batch_size 2 \
+--eval_batch_size 2 \
+--use_repeat_sampler \
+--learning_rate 0.00001 \
+--weight_decay 0.02 \
+--num_train_epochs 2 \
+--do_eval \
+--hidden_size 1024 \
+--freeze_layer -1 \
+--warmup_epoch 1 \
+--display_steps 1 \
+>debug.log 2>&1 &
 ```
 
 

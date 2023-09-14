@@ -1,0 +1,20 @@
+Directory output/tmp/ doesn't exist, create a new.
+do not freeze layers, layer = -1
+Traceback (most recent call last):
+  File "train_esm.py", line 274, in <module>
+    main()
+  File "train_esm.py", line 177, in main
+    model = model.to(device)
+  File "/home/megvii/.local/lib/python3.8/site-packages/torch/nn/modules/module.py", line 852, in to
+    return self._apply(convert)
+  File "/home/megvii/.local/lib/python3.8/site-packages/torch/nn/modules/module.py", line 530, in _apply
+    module._apply(fn)
+  File "/home/megvii/.local/lib/python3.8/site-packages/torch/nn/modules/module.py", line 530, in _apply
+    module._apply(fn)
+  File "/home/megvii/.local/lib/python3.8/site-packages/torch/nn/modules/module.py", line 552, in _apply
+    param_applied = fn(param)
+  File "/home/megvii/.local/lib/python3.8/site-packages/torch/nn/modules/module.py", line 850, in convert
+    return t.to(device, dtype if t.is_floating_point() or t.is_complex() else None, non_blocking)
+RuntimeError: CUDA error: out of memory
+CUDA kernel errors might be asynchronously reported at some other API call,so the stacktrace below might be incorrect.
+For debugging consider passing CUDA_LAUNCH_BLOCKING=1.

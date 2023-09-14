@@ -159,22 +159,25 @@ def main():
         output_device=args.local_rank)
 
   start_epoch = 0
+  start_step  = 0
   start_learning_rate = args.learning_rate
   if args.resume:
     ckpt_path = args.resume_path
     # ckpt = torch.load(ckpt_path, map_location=lambda storage, loc: storage)
     ckpt = torch.load(ckpt_path, map_location=torch.device('cpu'))
     load_pretrain(model, ckpt["state_dict"])
-    start_epoch = ckpt["epoch"] + 1
-    start_step = ckpt["step"] + 1
-    # optimizer.load_state_dict(ckpt["opt_state"])
-    start_learning_rate = ckpt["opt_state"]['param_groups'][0]['lr']
+    # if not args.resume_from_begin:
+    #   start_epoch = ckpt["epoch"] + 1
+    #   start_step = ckpt["step"] + 1
+    #   start_learning_rate = ckpt["opt_state"]['param_groups'][0]['lr']
+    readed_lr = ckpt["opt_state"]['param_groups'][0]['lr'] if 'opt_state' in ckpt else None
     print("load ckpt from {} and train from epoch {} and step {} and lr {}"
-      .format(ckpt_path, start_epoch, start_step, start_learning_rate))
+      .format(ckpt_path, ckpt["epoch"], ckpt["step"], readed_lr))
 
   model = model.to(device)
 
   ### optimizer
+  print("start_learning_rate = ".format(start_learning_rate))
   optimizer = torch.optim.Adam(
     model.parameters(), lr=start_learning_rate,
     betas=(0.9, 0.98), weight_decay=args.weight_decay)
@@ -183,7 +186,7 @@ def main():
   if not args.step_lr:
     lr_scheduler = WarmupCosineAnnealingLR(
       optimizer, 
-      eta_min = start_learning_rate * 0.01,
+      # eta_min = start_learning_rate * 0.01,
       T_max = args.num_train_epochs - args.warmup_epoch, # use 20 epoch from init_lr to 0
       warmup_epochs = args.warmup_epoch)
     # lr_scheduler = WarmupExponentialLR(
@@ -241,7 +244,7 @@ def main():
     for i_epoch in range(int(start_epoch), int(start_epoch + args.num_train_epochs)):
       # learning_rate_decay(args, i_epoch, optimizer)
       if is_main_process():
-        print('Epoch: {}/{}'.format(i_epoch, int(args.num_train_epochs)), end='  ')
+        print('Epoch = {}/{}'.format(i_epoch, int(args.num_train_epochs)), end='  ')
         print('Learning Rate = %5.8f' % optimizer.state_dict()['param_groups'][0]['lr'])
 
       train_sampler.set_epoch(i_epoch)

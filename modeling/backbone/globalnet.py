@@ -209,7 +209,7 @@ class GlobalNet(nn.Module):
 
         ### set token_dropout False 
         self.esm2 = ESM2(
-            num_layers = 6, # esm2_cfg.encoder_layers, # 6
+            num_layers = 5, # esm2_cfg.encoder_layers, # 6
             embed_dim=esm2_cfg.encoder_embed_dim, # 320
             attention_heads=esm2_cfg.encoder_attention_heads, # 20
             alphabet=alphabet,
@@ -218,7 +218,7 @@ class GlobalNet(nn.Module):
         
         dbm_config = DbmConfig(
             vocab_size = vocab_by_kmers[args.kmers], 
-            num_hidden_layers = 6, # 6,
+            num_hidden_layers = 5, # 6,
         )
         self.dbm = DBM(dbm_config)
         

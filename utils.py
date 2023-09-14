@@ -52,6 +52,9 @@ def add_argument(parser):
   parser.add_argument("--eval_batch_size", default=32, type=int, help="Total batch size for eval.")
   parser.add_argument("--test_batch_size", default=32, type=int, help="Total batch size for test.")
   parser.add_argument("--resume", action='store_true', help="Whether to run resume.")
+  parser.add_argument("--resume_path", default='', type=str) # old
+  parser.add_argument("--resume_from_begin", action='store_true')
+
   parser.add_argument("--use_repeat_sampler", action='store_true', help='use repeat sampler to achieve data balance')
   ### training settings and schedular
   parser.add_argument("--num_train_epochs", default=100.0, type=float, help="Total number of training epochs to perform.")
@@ -63,10 +66,10 @@ def add_argument(parser):
   parser.add_argument("--big_dataset", action='store_true', help='')
   parser.add_argument("--big_data_save_step", default=5000, type=int, help='')
 
-  parser.add_argument("--resume_path", default='', type=str) # old
+  
   parser.add_argument("--model_recover_path", default=None, type=str) # old
   ### output and display
-  parser.add_argument("--save_model_epoch", action='store_true')
+  parser.add_argument("--save_model_epoch", action='store_true', help="save model every epoch")
   parser.add_argument("--display_steps", default=10, type=int)
   parser.add_argument("--output_dir", default="tmp/", type=str)
   parser.add_argument("--log_dir", default=None, type=str)
