@@ -47,26 +47,26 @@ class RepeatFactorTrainingSampler(Sampler):
         self._frac_part = rep_factors - self._int_part # get float part
 
         self._local_indices = self._infinite_indices()
-        print(" self._local_indices len =  {}".format(len(self._local_indices)))
+        print("[repeated sampler] re-balanced dataset length (_local_indices.length) =  {}".format(len(self._local_indices)))
 
     def _get_bin_id(self, intervals, label):
-      other_ind = len(intervals[:-1])
-      found = False
+      # other_ind = len(intervals[:-1])
+    #   found = False
       for ind, pair in enumerate(zip(intervals[:-1], intervals[1:])):
-        i, j = pair
+        i, j = pair # max, min
         if label <= i and label > j:
-          found = True
+        #   found = True
           return ind
-      if not found:
-        return other_ind
+    #   if not found:
+    #     return other_ind
+      print("[repeated sampler error] can not find label {} in interval {}".format(label, intervals))
+      return 0
 
     def _get_repeat_factors(self, dataset_dicts, repeat_thresh):
         """
         Compute (fractional) per-image repeat factors.
-
         Args:
-            See __init__.
-
+            dataset_dicts: labels
         Returns:
             torch.Tensor: the i-th element is the repeat factor for the dataset image
                 at index i.
@@ -80,7 +80,8 @@ class RepeatFactorTrainingSampler(Sampler):
         
         
         # intervals = np.arange(0, -30, -2).astype(np.float32)
-        intervals = np.array([-4., -6., -8., -10., -12., -14., -16.], dtype=np.float32)
+        # intervals = np.array([np.inf, -4., -6., -8., -10., -12., -14., -16., -np.inf], dtype=np.float32)
+        intervals = np.array([np.inf, -6., -8., -10., -12., -14., -np.inf], dtype=np.float32)
 
         bin_id_by_data = []
         for label in dataset_dicts:

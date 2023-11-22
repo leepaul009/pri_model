@@ -25,10 +25,10 @@ def similar(a, b):
 ###########################################################################################
 
 
-param_load = False
+param_load = True
 # data_root = '../dataset/_datasets/cluster_res'
 data_root = 'dataset/_datasets/cluster_res'
-output_dir = 'out_v01'
+output_dir = 'out_dna_only_v02'
 # 分类数据
 pwtc_f = 'protein_wt_cluster.tsv'
 ddna_f = 'dsDNA_80_cluster.txt'
@@ -390,8 +390,8 @@ else:
 
 
 
-######
-
+#######################################################################
+###### save cluster info to csv #######################################
 
 table_list_cls = []
 table_list_avg_dist = []
@@ -437,11 +437,14 @@ series_tmp_indices = madf['base_class'].apply(lambda x : map_cls_to_mid[x]).valu
 series_avg_dist = pd.Series(mDist_cls[series_tmp_indices])
 madf['avg_dist_to_others'] = series_avg_dist
 
-
 if True:
   madf.to_csv(os.path.join(data_root, 'seq_dg_v02_1.txt'), index=False, sep='\t')
   wtdf.to_csv(os.path.join(data_root, 'wt_v02_1.txt'), index=False, sep='\t')
 
+
+uniq_key_complex = np.unique(madf['key_complex'].values)
+mask = madf['exp_id'].isin(uniq_key_complex)
+madf = madf[mask]
 
 ######################################################################################################
 ### 
@@ -579,19 +582,310 @@ def splitDataByRandomClsWithThreshold(cand_cls, df, mDistAll, cls2id, id2cls, cl
   print("collect {} test items".format(len(test_cls_expIds)))
   return test_cls_expIds
 
-ddna_test_cls_expIds = splitDataByRandomClsWithThreshold(candidate_cls, map_naType2df['dsDNA'], mDist_cls, 
+
+def get_var_for_cluster(input_df):
+  uniq_proteins = np.unique(input_df['protein_sequence'].values)
+  uniq_nu_acids = np.unique(input_df['nucleotide_sequence'].values)
+  seq2seq_id    = {seq: i for i, seq in enumerate(uniq_proteins)}
+  na2na_id      = {seq: i for i, seq in enumerate(uniq_nu_acids)}
+  prot_series   = input_df['protein_sequence'].apply(lambda k : seq2seq_id[k])
+  na_series     = input_df['nucleotide_sequence'].apply(lambda k : na2na_id[k])
+  prot_series   = prot_series.rename("pid")
+  na_series     = na_series.rename("nid")
+  df = pd.concat([na_series, prot_series, input_df['dG']], axis=1)
+  df = df.sort_values(by=['nid', 'pid'])
+  max_var = 0.
+  for k, v in df.groupby("nid"):
+    var = v["dG"].values.var()
+    if var > max_var:
+      max_var = var
+  for k, v in df.groupby("pid"):
+    var = v["dG"].values.var()
+    if var > max_var:
+      max_var = var
+  return max_var
+
+
+def splitDataByRandomClsWithThreshold21(cand_cls, df, mDistAll, cls2id, id2cls, cls2size, cls2expIds):
+  '''
+  df: df of this na type
+  mDistAll:
+  cls2id: map from cluster to dist mat index
+  cls2expIds: cluster map to unique exp ids
+  '''
+  cur_ueids = np.unique(df['key_complex'].values)
+  whole_sz = len(cur_ueids)
+  n_test = np.ceil(whole_sz * 0.25)
+  
+
+  uniq_clss = np.unique(df['base_class'].values)
+  # local mids for dataframe of current nc type
+  local_mids = np.array( [cls2id[c] for c in uniq_clss] )
+  local_dist = mDistAll[local_mids]
+  sorted_indices = local_dist.argsort()
+  sorted_mids = local_mids[sorted_indices]
+  sorted_cls = np.array( [id2cls[i] for i in sorted_mids] )
+
+  sz_cls = int(len(sorted_cls) / 3.)
+  # 我们把clusters分成2个组
+  sorted_cls_rank_A = sorted_cls[:sz_cls] # 33% cls with big dist
+  sorted_cls_rank_B = sorted_cls[sz_cls:] # 67% cls with small dist
+  
+  sub_df_by_cls = dict()
+  for c, sub_df in df.groupby("base_class"):
+    sub_df_by_cls[c] = sub_df
+
+  # 我们把clusters分成4个组
+  sorted_cls_rank_A1 = list()
+  sorted_cls_rank_A2 = list()
+  for c in sorted_cls_rank_A:
+    var = 0.
+    if len(sub_df_by_cls[c]) > 1:
+      var = get_var_for_cluster(sub_df_by_cls[c])
+    if var > 0.5:
+      sorted_cls_rank_A1.append(c)
+    else:
+      sorted_cls_rank_A2.append(c)
+
+  sorted_cls_rank_B1 = list()
+  sorted_cls_rank_B2 = list()
+  for c in sorted_cls_rank_B:
+    var = 0.
+    if len(sub_df_by_cls[c]) > 1:
+      var = get_var_for_cluster(sub_df_by_cls[c])
+    if var > 0.5:
+      sorted_cls_rank_B1.append(c)
+    else:
+      sorted_cls_rank_B2.append(c)
+
+  sorted_cls_rank_A1 = np.array(sorted_cls_rank_A1)
+  sorted_cls_rank_A2 = np.array(sorted_cls_rank_A2)
+  sorted_cls_rank_B1 = np.array(sorted_cls_rank_B1)
+  sorted_cls_rank_B2 = np.array(sorted_cls_rank_B2)
+
+  # 存储测试集的exp id
+  test_cls_expIds = np.empty((0), np.int64)
+  n_test_rankA = int(n_test * 0.67)
+  n_test_rankB = n_test - n_test_rankA
+
+
+  ### get data size in rank A
+  data_sz_rank_A1 = np.sum([len(cls2expIds[c]) for c in sorted_cls_rank_A1])
+  data_sz_rank_A2 = np.sum([len(cls2expIds[c]) for c in sorted_cls_rank_A2])
+  nA1 = int( n_test_rankA * data_sz_rank_A1 / (data_sz_rank_A1 + data_sz_rank_A2) )
+  nA2 = int( n_test_rankA * data_sz_rank_A2 / (data_sz_rank_A1 + data_sz_rank_A2) )
+  n_test_rank_A1 = min(nA1, data_sz_rank_A1)
+  n_test_rank_A2 = min(nA2, data_sz_rank_A2)
+  print("rankA: data_sz_rank_A1={}, data_sz_rank_A2={}, nA1={}, nA2={}".format(
+    data_sz_rank_A1, data_sz_rank_A2, nA1, nA2))
+
+  ### randomly select cls from rank A1/2
+  shuf_inds_A1 = np.random.permutation(len(sorted_cls_rank_A1))
+  shuf_inds_A2 = np.random.permutation(len(sorted_cls_rank_A2))
+  # chosen_cls_rank_A = np.concatenate(
+  #   [ sorted_cls_rank_A1[shuf_inds_A1][:n_test_rank_A1], 
+  #     sorted_cls_rank_A2[shuf_inds_A2][:n_test_rank_A2] ], axis=0)
+
+  for c in sorted_cls_rank_A1[shuf_inds_A1]: #从rankA 随机选取 测试集
+    test_cls_expIds = np.append(test_cls_expIds, cls2expIds[c], axis=0)
+    if len(test_cls_expIds) > n_test_rank_A1:
+      break
+  for c in sorted_cls_rank_A2[shuf_inds_A2]: #从rankA 随机选取 测试集
+    test_cls_expIds = np.append(test_cls_expIds, cls2expIds[c], axis=0)
+    if len(test_cls_expIds) > n_test_rank_A1 + n_test_rank_A2:
+      break
+
+
+  ### get data size in rank B
+  data_sz_rank_B1 = np.sum([len(cls2expIds[c]) for c in sorted_cls_rank_B1])
+  data_sz_rank_B2 = np.sum([len(cls2expIds[c]) for c in sorted_cls_rank_B2])
+  # n_test_rank_B1 = int(data_sz_rank_B1 * 0.33)
+  # n_test_rank_B2 = int(data_sz_rank_B2 * 0.33)
+  nB1 = int( n_test_rankB * data_sz_rank_B1 / (data_sz_rank_B1 + data_sz_rank_B2) )
+  nB2 = int( n_test_rankB * data_sz_rank_B2 / (data_sz_rank_B1 + data_sz_rank_B2) )
+  n_test_rank_B1 = min(nB1, data_sz_rank_B1)
+  n_test_rank_B2 = min(nB2, data_sz_rank_B2)
+  print("rankA: data_sz_rank_B1={}, data_sz_rank_B2={}, nB1={}, nB2={}".format(
+    data_sz_rank_B1, data_sz_rank_B2, nB1, nB2))
+
+  shuf_inds_B1 = np.random.permutation(len(sorted_cls_rank_B1))
+  shuf_inds_B2 = np.random.permutation(len(sorted_cls_rank_B2))
+  # chosen_cls_rank_B = np.concatenate(
+  #   [ sorted_cls_rank_B1[shuf_inds_B1][:n_test_rank_B1], 
+  #     sorted_cls_rank_B2[shuf_inds_B2][:n_test_rank_B2] ], axis=0)
+  
+  for c in sorted_cls_rank_B1[shuf_inds_B1]: #从rankA 随机选取 测试集
+    test_cls_expIds = np.append(test_cls_expIds, cls2expIds[c], axis=0)
+    if len(test_cls_expIds) > n_test_rank_A1 + n_test_rank_A2 + n_test_rank_B1:
+      break
+  for c in sorted_cls_rank_B2[shuf_inds_B2]: #从rankA 随机选取 测试集
+    test_cls_expIds = np.append(test_cls_expIds, cls2expIds[c], axis=0)
+    if len(test_cls_expIds) > n_test_rank_A1 + n_test_rank_A2 + n_test_rank_B1 + n_test_rank_B2:
+      break
+
+  # shuf_inds = np.random.permutation(len(sorted_cls_rank_B))
+  # for i in shuf_inds:
+  #   cls = sorted_cls_rank_B[i]
+  #   test_cls_expIds = np.append(test_cls_expIds, cls2expIds[cls], axis=0)
+  #   if len(test_cls_expIds) > n_test:
+  #     break
+
+  print("collect {} test items".format(len(test_cls_expIds)))
+  return test_cls_expIds
+
+
+
+def splitDataByRandomClsWithThreshold2(cand_cls, df, mDistAll, cls2id, id2cls, cls2size, cls2expIds):
+  '''
+  df: df of this na type
+  mDistAll:
+  cls2id: map from cluster to dist mat index
+  cls2expIds: cluster map to unique exp ids
+  '''
+  cur_ueids = np.unique(df['key_complex'].values)
+  whole_sz = len(cur_ueids)
+  n_test = np.ceil(whole_sz * 0.25)
+  
+
+  uniq_clss = np.unique(df['base_class'].values)
+  # local mids for dataframe of current nc type
+  local_mids = np.array( [cls2id[c] for c in uniq_clss] )
+  local_dist = mDistAll[local_mids]
+  sorted_indices = local_dist.argsort()
+  sorted_mids = local_mids[sorted_indices]
+  sorted_cls = np.array( [id2cls[i] for i in sorted_mids] )
+
+  sz_cls = int(len(sorted_cls) / 3.)
+  # 我们把clusters分成2个组
+  sorted_cls_rank_A = sorted_cls[:sz_cls] # 33% cls with big dist
+  sorted_cls_rank_B = sorted_cls[sz_cls:] # 67% cls with small dist
+  
+  sub_df_by_cls = dict()
+  for c, sub_df in df.groupby("base_class"):
+    sub_df_by_cls[c] = sub_df
+
+  # 我们把clusters分成4个组
+  sorted_cls_rank_A1 = list()
+  sorted_cls_rank_A2 = list()
+  for c in sorted_cls_rank_A:
+    var = 0.
+    if len(sub_df_by_cls[c]) > 1:
+      var = get_var_for_cluster(sub_df_by_cls[c])
+    if var > 0.5:
+      sorted_cls_rank_A1.append(c)
+    else:
+      sorted_cls_rank_A2.append(c)
+
+  sorted_cls_rank_B1 = list()
+  sorted_cls_rank_B2 = list()
+  for c in sorted_cls_rank_B:
+    var = 0.
+    if len(sub_df_by_cls[c]) > 1:
+      var = get_var_for_cluster(sub_df_by_cls[c])
+    if var > 0.5:
+      sorted_cls_rank_B1.append(c)
+    else:
+      sorted_cls_rank_B2.append(c)
+
+  sorted_cls_rank_A1 = np.array(sorted_cls_rank_A1)
+  sorted_cls_rank_A2 = np.array(sorted_cls_rank_A2)
+  sorted_cls_rank_B1 = np.array(sorted_cls_rank_B1)
+  sorted_cls_rank_B2 = np.array(sorted_cls_rank_B2)
+
+  # 存储测试集的exp id
+  test_cls_expIds = np.empty((0), np.int64)
+  # n_test_rankA = int(n_test * 0.67)
+  # n_test_rankB = n_test - n_test_rankA
+
+
+  ### get data size in rank A
+  data_sz_rank_A1 = np.sum([len(cls2expIds[c]) for c in sorted_cls_rank_A1])
+  data_sz_rank_A2 = np.sum([len(cls2expIds[c]) for c in sorted_cls_rank_A2])
+  # nA1 = int( n_test_rankA * data_sz_rank_A1 / (data_sz_rank_A1 + data_sz_rank_A2) )
+  # nA2 = int( n_test_rankA * data_sz_rank_A2 / (data_sz_rank_A1 + data_sz_rank_A2) )
+  # n_test_rank_A1 = min(nA1, data_sz_rank_A1)
+  # n_test_rank_A2 = min(nA2, data_sz_rank_A2)
+  # print("rankA: data_sz_rank_A1={}, data_sz_rank_A2={}, nA1={}, nA2={}".format(
+  #   data_sz_rank_A1, data_sz_rank_A2, nA1, nA2))
+  n_test_rank_A1 = int(data_sz_rank_A1 * 0.67)
+  n_test_rank_A2 = int(data_sz_rank_A2 * 0.67)
+
+  ### randomly select cls from rank A1/2
+  shuf_inds_A1 = np.random.permutation(len(sorted_cls_rank_A1))
+  shuf_inds_A2 = np.random.permutation(len(sorted_cls_rank_A2))
+
+  for c in sorted_cls_rank_A1[shuf_inds_A1]: #从rankA 随机选取 测试集
+    test_cls_expIds = np.append(test_cls_expIds, cls2expIds[c], axis=0)
+    if len(test_cls_expIds) > n_test_rank_A1:
+      n_test_rank_A1 = len(test_cls_expIds)
+      break
+  for c in sorted_cls_rank_A2[shuf_inds_A2]: #从rankA 随机选取 测试集
+    test_cls_expIds = np.append(test_cls_expIds, cls2expIds[c], axis=0)
+    if len(test_cls_expIds) > n_test_rank_A1 + n_test_rank_A2:
+      n_test_rank_A2 = len(test_cls_expIds) - n_test_rank_A1
+      break
+
+
+  ### get data size in rank B
+  data_sz_rank_B1 = np.sum([len(cls2expIds[c]) for c in sorted_cls_rank_B1])
+  data_sz_rank_B2 = np.sum([len(cls2expIds[c]) for c in sorted_cls_rank_B2])
+
+  n_test_rankB = n_test - len(test_cls_expIds)
+  if n_test_rankB <= 0:
+    print("collect {} test items".format(len(test_cls_expIds)))
+    return test_cls_expIds
+  
+  # n_test_rank_B1 = int(data_sz_rank_B1 * 0.33)
+  # n_test_rank_B2 = int(data_sz_rank_B2 * 0.33)
+  nB1 = int( n_test_rankB * data_sz_rank_B1 / (data_sz_rank_B1 + data_sz_rank_B2) )
+  nB2 = int( n_test_rankB * data_sz_rank_B2 / (data_sz_rank_B1 + data_sz_rank_B2) )
+  n_test_rank_B1 = min(nB1, data_sz_rank_B1)
+  n_test_rank_B2 = min(nB2, data_sz_rank_B2)
+  print("rankA: data_sz_rank_B1={}, data_sz_rank_B2={}, nB1={}, nB2={}".format(
+    data_sz_rank_B1, data_sz_rank_B2, nB1, nB2))
+
+  shuf_inds_B1 = np.random.permutation(len(sorted_cls_rank_B1))
+  shuf_inds_B2 = np.random.permutation(len(sorted_cls_rank_B2))
+  # chosen_cls_rank_B = np.concatenate(
+  #   [ sorted_cls_rank_B1[shuf_inds_B1][:n_test_rank_B1], 
+  #     sorted_cls_rank_B2[shuf_inds_B2][:n_test_rank_B2] ], axis=0)
+  
+  for c in sorted_cls_rank_B1[shuf_inds_B1]: #从rankA 随机选取 测试集
+    test_cls_expIds = np.append(test_cls_expIds, cls2expIds[c], axis=0)
+    if len(test_cls_expIds) > n_test_rank_A1 + n_test_rank_A2 + n_test_rank_B1:
+      n_test_rank_B1 = len(test_cls_expIds) - (n_test_rank_A1 + n_test_rank_A2)
+      break
+  for c in sorted_cls_rank_B2[shuf_inds_B2]: #从rankA 随机选取 测试集
+    test_cls_expIds = np.append(test_cls_expIds, cls2expIds[c], axis=0)
+    if len(test_cls_expIds) > n_test_rank_A1 + n_test_rank_A2 + n_test_rank_B1 + n_test_rank_B2:
+      break
+
+  # shuf_inds = np.random.permutation(len(sorted_cls_rank_B))
+  # for i in shuf_inds:
+  #   cls = sorted_cls_rank_B[i]
+  #   test_cls_expIds = np.append(test_cls_expIds, cls2expIds[cls], axis=0)
+  #   if len(test_cls_expIds) > n_test:
+  #     break
+
+  print("collect {} test items".format(len(test_cls_expIds)))
+  return test_cls_expIds
+
+
+
+
+ddna_test_cls_expIds = splitDataByRandomClsWithThreshold2(candidate_cls, map_naType2df['dsDNA'], mDist_cls, 
   map_cls_to_mid, map_mid_to_cls, 
   map_cls2uniqSize, map_cls2uniqExpIds)
 
-drna_test_cls_expIds = splitDataByRandomClsWithThreshold(candidate_cls, map_naType2df['dsRNA'], mDist_cls, 
+drna_test_cls_expIds = splitDataByRandomClsWithThreshold2(candidate_cls, map_naType2df['dsRNA'], mDist_cls, 
   map_cls_to_mid, map_mid_to_cls, 
   map_cls2uniqSize, map_cls2uniqExpIds)
 
-sdna_test_cls_expIds = splitDataByRandomClsWithThreshold(candidate_cls, map_naType2df['ssDNA'], mDist_cls, 
+sdna_test_cls_expIds = splitDataByRandomClsWithThreshold2(candidate_cls, map_naType2df['ssDNA'], mDist_cls, 
   map_cls_to_mid, map_mid_to_cls, 
   map_cls2uniqSize, map_cls2uniqExpIds)
 
-srna_test_cls_expIds = splitDataByRandomClsWithThreshold(candidate_cls, map_naType2df['ssRNA'], mDist_cls, 
+srna_test_cls_expIds = splitDataByRandomClsWithThreshold2(candidate_cls, map_naType2df['ssRNA'], mDist_cls, 
   map_cls_to_mid, map_mid_to_cls, 
   map_cls2uniqSize, map_cls2uniqExpIds)
 
@@ -605,7 +899,11 @@ np.savez(os.path.join(output_dir, 'test_set_v01'),
 
 
 ###
+dataset_name = 'dna'
+
 test_expIds_all = [ddna_test_cls_expIds, drna_test_cls_expIds, sdna_test_cls_expIds, srna_test_cls_expIds]
+if dataset_name == 'dna':
+  test_expIds_all = [ddna_test_cls_expIds, sdna_test_cls_expIds]
 test_expIds_all = np.concatenate(test_expIds_all)
 
 map_expId2uniqExpId = dict()
@@ -623,6 +921,11 @@ new_df.to_csv(os.path.join(output_dir, 'test.csv'), index=False, sep='\t')
 
 
 new_df = madf[~madf['exp_id'].isin(test_expIds_all)]
+
+if dataset_name == 'dna':
+  mask = new_df['key_nucleic_acids'].str.contains('DNA') # return series of bool
+  new_df = new_df[mask]
+
 if True: # use uniq
   ss = new_df['exp_id'].apply(lambda x : map_expId2uniqExpId[x])
   uniq_train_eids = np.unique(ss.values)

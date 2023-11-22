@@ -61,8 +61,8 @@ class PostProcess(nn.Module):
             preds = preds.detach().cpu().numpy().reshape(-1) # (bs, 1) => (bs)
             if isinstance(input[0], Dict):
                 labels = np.array(utils.get_from_mapping(input, 'label'))
-            elif len(input) == 3: # for new model
-                list_dict, _, _ = input
+            elif len(input) == 4: # for new model
+                list_dict, _, _, _ = input
                 labels = np.array([idict['label'] for idict in list_dict])
             else: # useless
                 labels = np.array([idict['label'] for idict, _ in input])

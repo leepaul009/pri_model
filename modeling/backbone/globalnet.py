@@ -204,6 +204,7 @@ class GlobalNet(nn.Module):
         self.alphabet  = alphabet
         self.dalphabet = dalphabet
         
+        self.prot_chm_feat = False
         # self.pwm_type = 'pssm'
         # self.use_prot_chm = True
 
@@ -245,8 +246,8 @@ class GlobalNet(nn.Module):
         #         nn.init.constant_(l.bias, 0)
                 
 
-    def forward(self, input: Tuple[List[Dict], Tensor, Tensor], device):
-        mapping, aa_tokens, nc_tokens = input # aa_tokens (B,T), nc_tokens (B,T)
+    def forward(self, input: Tuple[List[Dict], Tensor, Tensor, Tensor], device):
+        mapping, aa_tokens, nc_tokens, aa_chm = input # aa_tokens (B,T), nc_tokens (B,T)
         
         ### aa pad_id=1, nc pad_id=0
         
@@ -272,8 +273,12 @@ class GlobalNet(nn.Module):
             nc_seq_lens += [len( torch.where(nc_tokens[i] != 0)[0] )]
         
         aa_tokens, nc_tokens = aa_tokens.to(device), nc_tokens.to(device)
-        
-        aa_emb = self.esm2(aa_tokens) # (B, Tp, C=320) normed
+        if self.prot_chm_feat:
+            aa_chm = aa_chm.to(device)
+        else:
+            aa_chm = None
+
+        aa_emb = self.esm2(aa_tokens, (aa_chm)) # (B, Tp, C=320) normed
         nc_emb = self.dbm(nc_tokens) # (B, Tn, C=768) normed
 
         assert aa_emb is not None

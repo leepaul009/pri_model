@@ -37,6 +37,8 @@ class ESM2(nn.Module):
         self.append_eos = alphabet.append_eos
         self.token_dropout = token_dropout
 
+        self.use_chm_feature = False
+
         self._init_submodules()
 
     def _init_submodules(self):
@@ -46,6 +48,9 @@ class ESM2(nn.Module):
             self.embed_dim,
             padding_idx=self.padding_idx,
         )
+
+        if self.use_chm_feature:
+            self.embed_chm = nn.Linear(7, self.embed_dim, bias=False)
 
         self.layers = nn.ModuleList(
             [
@@ -75,7 +80,7 @@ class ESM2(nn.Module):
         #     weight=self.embed_tokens.weight,
         # )
 
-    def forward(self, tokens, repr_layers=[], need_head_weights=False, return_contacts=False):
+    def forward(self, tokens, other_tokens, repr_layers=[], need_head_weights=False, return_contacts=False):
         if return_contacts:
             need_head_weights = True
 
@@ -83,6 +88,12 @@ class ESM2(nn.Module):
         padding_mask = tokens.eq(self.padding_idx)  # B, T
         # do not apply norm after embed layer, leave norm to transformer
         x = self.embed_scale * self.embed_tokens(tokens) # (B,T) => (B,T,C)
+
+        if self.use_chm_feature:
+            chm_tokens = other_tokens
+            # (B,T,C=7) => (B,T,C)
+            b, t, h = chm_tokens.shape
+            x += self.embed_chm(chm_tokens.reshape(-1, h)).reshape(b, t, -1)
 
         if self.token_dropout:
             x.masked_fill_((tokens == self.mask_idx).unsqueeze(-1), 0.0) # fill zero to seq_idx

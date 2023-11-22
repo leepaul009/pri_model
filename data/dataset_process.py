@@ -165,9 +165,9 @@ def getProtChemFeature(dir, input_complex, args):
   # return all_feat # (num_aa, 37)
   
 
-
+### 从化学特征文件、protein序列提取该序列的化学特征
 def getProtChemFeature_7s(prot_chm_df, input_complex, args):
-  p_seqs = input_complex["protein_sequence"] # string
+  p_seqs = input_complex["protein_sequence"] # 字母构成的序列，字符串
   cols = ["Steric_parameter", "polarizability",	"volume",	
           "hydrophobicity",	"isoelectric point",	
           "Helix probability",	"Sheet probability"]

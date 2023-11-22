@@ -202,9 +202,13 @@ def pri_get_instance(input_complex, args, other_inputs):
 
   ################# get chemistry features #################
   aa_chm_feature = None
-  if args.use_prot_chm_feature:
-    p_chemfeat_dir = 'dataset/protein_all_feas/'
-    aa_chm_feature = getProtChemFeature(p_chemfeat_dir, input_complex, args) # (num_aa, 7)
+  # if args.use_prot_chm_feature:
+  #   p_chemfeat_dir = 'dataset/protein_all_feas/'
+  #   aa_chm_feature = getProtChemFeature(p_chemfeat_dir, input_complex, args) # (num_aa, 7)
+  # if args.use_chemistry:
+  prot_chm_f = 'dataset/dataset_prot_nuacid_interaction/protein_chemistry_features.txt'
+  prot_chm_df = pd.read_table(prot_chm_f, index_col=0)
+  aa_chm_feature = getProtChemFeature_7s(prot_chm_df, input_complex, args) # (num_aa, 7)
 
 
   ################# get nucleotide features #################
@@ -245,7 +249,7 @@ def pri_get_instance(input_complex, args, other_inputs):
     nc_chemistry_features = get_nc_chemistry(input_complex['na_jobid'], 
       input_complex["nucleotide_sequence"],  chemistry_dir)
   
-  ### bin label
+  ############ create bin label ############
   bin_ctrs, bin_half_w, label_bin, label_offset = None, None, None, None
   if args.label_bin:
     # print("use bin label instead of simple regression")
@@ -255,12 +259,12 @@ def pri_get_instance(input_complex, args, other_inputs):
   mapping = {}
   mapping.update(dict(
     exp_id = input_complex["exp_id"], # must
-    protein = input_protein,
+    protein = input_protein,        # 字符串protein序列
     nc_sequences = nucleotide_sequences,
     seqs_kmers = seqs_kmers,
     aa_attributes = aa_attributes,  # (num_aa, 20)
     aa_pwm = aa_pwm_feature,        # (num_aa, ?)
-    aa_chm = aa_chm_feature,        # (num_aa, 37)
+    aa_chm = aa_chm_feature,        # protein化学特征 (num_aa, 7)
     # aa_indices = aa_indices, # (num_aa,)
     # atom_attributes = atom_attributes, # list[np.ndarray=(num_atoms,1)]
     atom_attributes = feature_by_atom, # (num_aa, MAX_NUM_ATOMS)

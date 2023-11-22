@@ -39,6 +39,38 @@ from train import lr_decay_by_steps, learning_rate_decay, save_ckpt, \
 
 
 
+def warmup_lr_sched_by_steps(
+  target_lr, steps_update_lr, all_steps, step, optimizer):
+  
+  # warm up 10 times
+  warmup_cycle = steps_update_lr
+  warm_up_times = 10
+  all_warm_up_steps = warmup_cycle * warm_up_times
+  if step < all_warm_up_steps: # do warm up
+
+    # compute start warm up lr
+    warm_start_lr = 0.0
+    if step == 0:
+      warm_start_lr = optimizer.state_dict()['param_groups'][0]['lr']
+
+    delta_rate = (target_lr - warm_start_lr) / warm_up_times
+
+    # update
+    if step > 0 and step % warmup_cycle == 0:
+      for p in optimizer.param_groups:
+        p['lr'] += delta_rate
+      print("warmup: step {}, updated lr = {}, delta_rate = {}"
+        .format(step, p['lr'], delta_rate))
+    return
+
+  step_start_update = all_warm_up_steps
+
+  if step > step_start_update and step % steps_update_lr == 0:
+    for p in optimizer.param_groups:
+      p['lr'] *= 0.994
+    print("step {}, updated lr = {}, update lr every {} steps"
+      .format(step, p['lr'], steps_update_lr))
+
 
 def test(model, dataloader, post_process, epoch, device, args):
   model.eval()
@@ -110,8 +142,11 @@ def train_one_epoch(model, train_dataloader, val_dataloader,
       save_ckpt(model, optimizer, save_dir, i_epoch, step, 
                 overwrite=True, cp_name='tmp')
 
-    if args.step_lr:
+    if args.step_lr and not args.step_lr_warmup:
       lr_decay_by_steps(args.steps_update_lr, all_steps, step, optimizer)
+    elif args.step_lr and args.step_lr_warmup:
+      warmup_lr_sched_by_steps(
+        args.learning_rate, args.steps_update_lr, all_steps, step, optimizer)
 
   # do eval after an epoch training
   if args.do_eval:
@@ -161,6 +196,7 @@ def main():
   start_epoch = 0
   start_step  = 0
   start_learning_rate = args.learning_rate
+  ### Notice: current we do not resume learning rate
   if args.resume:
     ckpt_path = args.resume_path
     # ckpt = torch.load(ckpt_path, map_location=lambda storage, loc: storage)
@@ -176,22 +212,31 @@ def main():
 
   model = model.to(device)
 
+  if args.step_lr and args.step_lr_warmup:
+    # do warm up
+    # warm up target lr should be equal to args' lr
+    print("update learning rate by steps, and use warmup")
+    start_learning_rate = args.learning_rate
+    start_learning_rate = start_learning_rate * 0.001
+
   ### optimizer
-  print("start_learning_rate = ".format(start_learning_rate))
+  print("start_learning_rate = {}".format(start_learning_rate))
   optimizer = torch.optim.Adam(
     model.parameters(), lr=start_learning_rate,
     betas=(0.9, 0.98), weight_decay=args.weight_decay)
 
   ### learning rate schedular
   if not args.step_lr:
+    print("use warmup cosine learning rate schedular with T_max = {}, warmup_epochs = {}".format(
+      args.num_train_epochs - args.warmup_epoch, 
+      args.warmup_epoch))
     lr_scheduler = WarmupCosineAnnealingLR(
       optimizer, 
-      # eta_min = start_learning_rate * 0.01,
+      # eta_min = start_learning_rate * 1e-3,
       T_max = args.num_train_epochs - args.warmup_epoch, # use 20 epoch from init_lr to 0
       warmup_epochs = args.warmup_epoch)
     # lr_scheduler = WarmupExponentialLR(
     #   optimizer, gamma=0.95, warmup_epochs=args.warmup_epoch)
-    
   
   #########################################
   ### create data loader
@@ -253,6 +298,8 @@ def main():
                       optimizer, post_process, device, i_epoch, args, gmetrics)
       if not args.step_lr:
         lr_scheduler.step()
+        print("run step for lr_schedular, learning rate became to {}".format(
+          optimizer.state_dict()['param_groups'][0]['lr']))
   
   else:
     if args.data_name == 'hox_data':
