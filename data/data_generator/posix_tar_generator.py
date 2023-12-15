@@ -128,10 +128,16 @@ if __name__ == "__main__":
 
 
     def map_func(item):
+        # sample = {
+        #     "protein": str(item[0]), # use by esm
+        #     "dna": str(item[1]), # used by dbert
+        #     "label": float(item[2]), # float scalar
+        # }
         sample = {
-            "protein": str(item[0]), # use by esm
-            "dna": str(item[1]), # used by dbert
-            "label": float(item[2]), # float scalar
+            "__key__": "xx", ## how to define key?
+            "protein": zlib.compress(pickle.dumps(item[0])),
+            "dna": zlib.compress(pickle.dumps(item[1])),
+            "label": zlib.compress(pickle.dumps(item[2])),
         }
         return sample
 
