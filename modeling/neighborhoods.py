@@ -155,16 +155,23 @@ class FrameBuilder(nn.Module):
     # as each item of triplets indicate which point(in points) the item belong
     triplets = torch.clamp(triplets, min=0, max=points.shape[-2]-1)
 
-
+    # triplets[:, :, 1:2].shape = (?,?,1)
+    # gather_nd_torch(points, triplets[:, :, 0:1], batch_dims=1)的含义：points的shape是(batch, all_atoms, 3)，triplets的shape是(batch, ?, 3)，
+    # triplets[:,:,0:1]表示的是三元组中的第一个元素，如果三元组表示为（中，前，后），则其表示为中间的元素，其值是atom的序号；
+    # gather_nd_torch意为从points的第二维(atoms)中选取triplets第一个元素记录的atom序号，从points中找到对应序号的atom的三个坐标值
+    # delta_10可以理解为向量，从center指向front，delta_20是center指向rear的向量
     delta_10 = gather_nd_torch(points, triplets[:, :, 1:2], batch_dims=1) - gather_nd_torch(points, triplets[:, :, 0:1], batch_dims=1)
     delta_20 = gather_nd_torch(points, triplets[:, :, 2:3], batch_dims=1) - gather_nd_torch(points, triplets[:, :, 0:1], batch_dims=1)
 
     if self.order in ['2','3']: 
       delta_10,delta_20 = delta_20,delta_10
     
+    # 中心点很好理解
     centers = gather_nd_torch(points, triplets[:, :, 0:1], batch_dims=1)
+    # z轴是：向量center->front的单位向量
     zaxis = (delta_10 + self.epsilon * torch.reshape(self.zaxis,[1,1,3])) / (torch.sqrt(torch.sum(delta_10 ** 2, dim=-1, keepdim=True) ) + self.epsilon)
 
+    # y轴是：z轴和向量center->rear组成的平面的垂直向量
     yaxis = torch.linalg.cross(zaxis, delta_20, dim=-1)
     yaxis = (yaxis + self.epsilon * torch.reshape(self.yaxis,[1,1,3]) ) / (torch.sqrt(torch.sum(yaxis ** 2, dim=-1, keepdim=True) ) + self.epsilon)
 
