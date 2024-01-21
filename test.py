@@ -124,24 +124,25 @@ tensor_aa_triplets = tensor_aa_triplets.long()
 config = None
 frame_builder = FrameBuilder(config)
 
+## put into data preprocess as multi-thread running
 inputs = [tensor_aa_clouds, tensor_aa_triplets]
 frames = frame_builder(inputs)
 
 
 
-from modeling.neighborhoods import LocalNeighborhood
+# from modeling.neighborhoods import LocalNeighborhood
 
-coordinates=['euclidian',]
+# coordinates=['euclidian',]
 
-local_neighborhood = LocalNeighborhood(config, Kmax=16, coordinates=coordinates, self_neighborhood=True, index_distance_max=8, nrotations=1)
+# local_neighborhood = LocalNeighborhood(config, Kmax=16, coordinates=coordinates, self_neighborhood=True, index_distance_max=8, nrotations=1)
 
-tensor_aa_attributes = torch.Tensor(aa_attributes)
-tensor_aa_attributes = tensor_aa_attributes.unsqueeze(0)
-input2localneighborhood = [frames, tensor_aa_attributes]
-output = local_neighborhood(input2localneighborhood)
+# tensor_aa_attributes = torch.Tensor(aa_attributes)
+# tensor_aa_attributes = tensor_aa_attributes.unsqueeze(0)
+# input2localneighborhood = [frames, tensor_aa_attributes]
+# output = local_neighborhood(input2localneighborhood)
 
-# (torch.Size([1, 518, 16, 3]), torch.Size([1, 518, 16, 20]))
-neighbor_coordinates, neighbors_attributes = output[0][0], output[1]
+# # (torch.Size([1, 518, 16, 3]), torch.Size([1, 518, 16, 20]))
+# neighbor_coordinates, neighbors_attributes = output[0][0], output[1]
 
 
 
