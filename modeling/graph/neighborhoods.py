@@ -142,6 +142,7 @@ class FrameBuilder(nn.Module):
     self.xaxis = torch.tensor(np.array([[1, 0, 0]], dtype=np.float32))
     self.yaxis = torch.tensor(np.array([[0, 1, 0]], dtype=np.float32))
     self.zaxis = torch.tensor(np.array([[0, 0, 1]], dtype=np.float32))
+  
   """
   input:
     inputs: 
@@ -207,13 +208,18 @@ def distance(coordinates1,coordinates2,squared=False,ndims=3):
 
 
 class LocalNeighborhood(nn.Module):
+  """
+  inputs:
+    index_distance_max: default 8
+    nrotations:         default 1
+  """
   def __init__(self, 
-      config,
-      Kmax=10, 
-      coordinates=['index_distance'],
-      self_neighborhood=True,
-      index_distance_max=None,
-      nrotations = 1):
+               config,
+               Kmax=10, 
+               coordinates=['index_distance'],
+               self_neighborhood=True,
+               index_distance_max=None,
+               nrotations = 1):
     super(LocalNeighborhood, self).__init__()
     self.config = config
 
@@ -223,16 +229,14 @@ class LocalNeighborhood(nn.Module):
 
     self.first_format = []
     self.second_format = []
-    if (('euclidian' in self.coordinates) 
-        | ('ZdotZ' in self.coordinates) 
-        | ('ZdotDelta' in self.coordinates)):
+    # 如果是
+    if (('euclidian' in self.coordinates) | ('ZdotZ' in self.coordinates) | ('ZdotDelta' in self.coordinates)):
       self.first_format.append('frame')
-      if (self.self_neighborhood 
-          | ('ZdotZ' in self.coordinates) 
-          | ('ZdotDelta' in self.coordinates)):
+      if (self.self_neighborhood | ('ZdotZ' in self.coordinates) | ('ZdotDelta' in self.coordinates)):
+        # use frame for self-neighbor, or ZdotZ, or ZdotDelta
         self.second_format.append('frame')
       else:
-        # cross neighbor and euclidian
+        # cross neighbor and euclidian (not used now)
         self.second_format.append('point')
     elif 'distance' in self.coordinates:
       self.first_format.append('point')
@@ -294,6 +298,7 @@ class LocalNeighborhood(nn.Module):
       second_point = None
 
     # get index data
+    # 如果 first_format = (frame, index)，则 self.first_format.index('index') = 1，则inputs的第二个输入应该是序号数据
     if 'index' in self.first_format:
       first_index = inputs[self.first_format.index('index')] # [bs, s1, 1]
     else:
@@ -315,13 +320,16 @@ class LocalNeighborhood(nn.Module):
 
     # prepare input feature
     # list( [bs, s2, h] )
+    # 如果 first_format=[frame, index] 且 self_neighborhood=T，则 nattributes=3-2=1
     nattributes = len(inputs) - len(self.first_format) - (1-1*self.self_neighborhood) * len(self.second_format)
-    # print("nattributes={}".format(nattributes))
     second_attributes = inputs[-nattributes:]
+    # print("nattributes={}".format(nattributes))
+
 
     # determine the first and second center
+    # 如果使用'frame'，则first_frame不可能是None
     if first_frame is not None:
-      first_center = first_frame[:,:,0]
+      first_center = first_frame[:,:,0] # frame的shape=(bs, s1, 4, 3)，所以此处0表示第一个点，即中心点
       ndims = 3
     elif first_point is not None:
       first_center = first_point
@@ -330,6 +338,7 @@ class LocalNeighborhood(nn.Module):
       first_center = first_index.type(torch.float32)
       ndims = 1
 
+    # 如果使用'frame'，则second_frame不可能是None
     if second_frame is not None:
       second_center = second_frame[:,:,0]
     elif second_point is not None:
@@ -343,7 +352,6 @@ class LocalNeighborhood(nn.Module):
     # neighbors = torch.unsqueeze(torch.argsort(distance_square)[:,:,:self.Kmax], dim=-1)
     neighbors = torch.argsort(distance_square, dim=-1)[:, :, :self.Kmax] # [bs, s1, k]
     # neighbors = neighbors.view(-1, self.Kmax) # TODO: continous?? [bs*s1, k]
-
 
     neighbors_attributes = []
     for attribute in second_attributes:
@@ -359,6 +367,7 @@ class LocalNeighborhood(nn.Module):
 
     self.epsilon = torch.tensor(self.epsilon).to(device)
     neighbor_coordinates = []
+
     
     if 'euclidian' in self.coordinates:
       nei = neighbors.unsqueeze(dim=-1)
@@ -384,19 +393,21 @@ class LocalNeighborhood(nn.Module):
       neighbor_coordinates.append(euclidian_coordinates)
 
     # if 'euclidian' in self.coordinates:
+    # 有euclidian的话，就不应该有distance 
     if 'distance' in self.coordinates:
       # distance_square=(bs, s1, s2), neighbors=(bs, s1, k)
       bs, s1, s2 = distance_square.shape
       offset = torch.arange(bs * s1).reshape(bs, s1, 1) * s2
+      # 因为neighbors存储的是第二个坐标数据的序号
       nei_offset = offset.to(device) + neighbors # [bs,s1,1]+[bs,s1,k]=[bs,s1,k]
       # match k neighbors across bs*s1 dim
-      distance_neighbors = distance_square.reshape(-1)[nei_offset.reshape(-1)]
+      distance_neighbors = distance_square.reshape(-1)[nei_offset.reshape(-1)] # 提取kmax的距离
       distance_neighbors = distance_neighbors.reshape(bs, s1, self.Kmax, 1)
       neighbor_coordinates.append(distance_neighbors)
 
     if 'ZdotZ' in self.coordinates:
       # frame=[bs,s1,4,3]
-      first_zdirection = first_frame[:,:,-1] # [bs,s1,3]
+      first_zdirection  = first_frame[:, :, -1]  # [bs,s1,3] 最后一个点
       second_zdirection = second_frame[:, :, -1] # [bs,s2,3]
       # neighbors=(bs, s1, k)
       bs, s1, h1 = first_zdirection.shape
@@ -405,7 +416,7 @@ class LocalNeighborhood(nn.Module):
       offset = torch.arange(bs).reshape(-1, 1, 1) * s2
       nei_offset = offset.to(device) + neighbors
       
-      nei_second_zdir = second_zdirection.reshape(bs*s2, -1)[nei_offset.reshpae(-1)]
+      nei_second_zdir = second_zdirection.reshape(bs*s2, -1)[nei_offset.reshape(-1)]
       nei_second_zdir = nei_second_zdir.reshape(bs, s1, self.Kmax, -1)
       # vector dot product
       ZdotZ_neighbors = first_zdirection.unsqueeze(dim=-2) * nei_second_zdir
@@ -414,24 +425,37 @@ class LocalNeighborhood(nn.Module):
       neighbor_coordinates.append(ZdotZ_neighbors)
 
     if 'ZdotDelta' in self.coordinates:
-      first_zdirection = first_frame[:,:,-1]
-      second_zdirection = second_frame[:, :, -1]
+      first_zdirection  = first_frame[:, :, -1]  # [bs,s1,3] 最后一个点
+      second_zdirection = second_frame[:, :, -1] # [bs,s2,3]
       bs, s1, h1 = first_zdirection.shape
       _, s2, h2 = second_zdirection.shape
 
+      #########
+      # distance_square=(bs, s1, s2), neighbors=(bs, s1, k)
+      # bs, s1, s2 = distance_square.shape
+      offset = torch.arange(bs * s1).reshape(bs, s1, 1) * s2
+      # 因为neighbors存储的是第二个坐标数据的序号
+      nei_offset = offset.to(device) + neighbors # [bs,s1,1]+[bs,s1,k]=[bs,s1,k]
+      # match k neighbors across bs*s1 dim
+      distance_neighbors = distance_square.reshape(-1)[nei_offset.reshape(-1)] # 提取kmax的距离
+      distance_neighbors = distance_neighbors.reshape(bs, s1, self.Kmax, 1)
+      #########
+
       # TODO: same to ZdotZ, use single
+      # 说明输入使用了padding，保证此batch内的不同条数据的seq长度相同
       offset = torch.arange(bs).reshape(-1, 1, 1) * s2
       nei_offset = offset.to(device) + neighbors
 
-      nei_center = second_center.reshape(bs*s2, -1)[nei_offset.reshpae(-1)]
+      nei_center = second_center.reshape(bs*s2, -1)[nei_offset.reshape(-1)]
       nei_center = nei_center.reshape(bs, s1, self.Kmax, -1)
       # TODO: self.epsilon is float scalar
       # center_vector from first center to second neighbor center
+      # shape: (bs,s1,k,3) = ( (bs,s1,k,3) - (bs,s1,1,3) ) / (bs,s1,k,1) 这里计算的是距离的norm
       DeltaCenter_neighbors = (
         nei_center - first_center.unsqueeze(dim=-2)) / (distance_neighbors + self.epsilon)
       # z_vector dot product with center_vector
       ZdotDelta_neighbors = torch.sum(first_zdirection.unsqueeze(dim=-2) * DeltaCenter_neighbors,
-        dim=-1, keepdim=True) # [bs, s1, k, 3] => [bs, s1, k](dot product sum x/y/z)
+        dim=-1, keepdim=True) # ( (bs,s1,1,3)*(bs,s1,k,3) ) = [bs,s1,k,3] => [bs, s1, k](dot product sum x/y/z)
       # TODO: depends on 'ZdotZ' computation
       DeltadotZ_neighbors = torch.sum(DeltaCenter_neighbors * nei_second_zdir, dim=-1, keepdim=True)
 
@@ -447,7 +471,7 @@ class LocalNeighborhood(nn.Module):
           second_index[i, neighbors[i], :].unsqueeze(dim=0) )
       neighbor_second_indices = torch.cat(neighbor_second_indices, dim=0) # [bs, s1, k, 1]
 
-      index_distance = first_index.unsqueeze(dim=-2) - neighbor_second_indices
+      index_distance = first_index.unsqueeze(dim=-2) - neighbor_second_indices # (bs,s1,1,1)-(bs,s1,k,1)=(bs,s1,k,1)
       index_distance = torch.abs(index_distance.type(torch.float32))
 
       neighbor_coordinates.append(index_distance)

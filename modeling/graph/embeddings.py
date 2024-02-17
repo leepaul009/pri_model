@@ -81,6 +81,54 @@ class AttentionLayer(nn.Module):
 
     return [output_final, attention_coefficients_final]
 
+
+class GaussianKernel(nn.Module):
+  def __init__(self, N, initial_values, covariance_type='diag', eps=1e-1, **kwargs):
+    super(GaussianKernel, self).__init__(**kwargs)
+    self.support_masking = True
+    self.eps = eps
+    self.N = N # 32 for example
+    self.initial_values = initial_values
+    self.covariance_type = covariance_type
+    assert self.covariance_type in ['diag', 'full']
+
+    ## build
+    # TODO: init input_shape = 
+    self.nbatch_dim = len(input_shape) - 1
+    self.d = 5 # input_shape[-1]
+    self.center_shape = torch.Size([self.d, self.N])
+
+    self.kernel_centers = torch.nn.Parameter(data=torch.Tensor(self.center_shape), requires_grad=True) # (d,N)
+
+    if self.covariance_type == 'diag':
+      self.width_shape = torch.Size([self.d, self.N])
+      self.kernel_widths = torch.nn.Parameter(data=torch.Tensor(self.width_shape), requires_grad=True) # (d,N)
+    elif self.covariance_type == 'full':
+      self.sqrt_precision_shape = torch.Size([self.d, self.d, self.N])
+      self.sqrt_precision = torch.nn.Parameter(data=torch.Tensor(self.sqrt_precision_shape), requires_grad=True) # (d, d,N)
+
+  def forward(self, x):
+    nbatch_dim   = len(x.shape) - 1
+    input_size   = torch.Size([1 for _ in nbatch_dim])
+    centers_size = input_size + self.center_shape # [1,1,1,5,N]
+
+    if self.covariance_type == 'diag':
+      base_size = input_size + self.width_shape # [1,1,1,5,N]
+      # (bs,seq,32,5,1) - (1,1,1,d=5,N) = (bs,seq,32,5,N)
+      base = (kernel_widths + self.eps).reshape(base_size)
+      x = ( x.unsqueeze(dim=-1) - self.kernel_centers.reshape(centers_size) ) / base
+      activity = torch.exp( -0.5 * torch.sum(x**2, dim=-2) )
+    elif self.covariance_type == 'full':
+      # (bs,seq,32,5,1) - (1,1,1,d=5,N) = (bs,seq,32,5,N)
+      intermediate  = x.unsqueeze(dim=-1) - self.kernel_centers.reshape(centers_size)
+      # (bs,seq,32,1,5,N) * (1,5,5,N) = (bs,seq,32,5,5,N) = (bs,seq,32,5,N)
+      intermediate2 = torch.sum(intermediate.unsqueeze(dim=-3) * self.sqrt_precision.unsqueeze(dim=0), dim=-2)
+      activity = torch.exp(-0.5 * torch.sum(intermediate2**2, dim=-2)) # (bs,seq,32,N)
+    else:
+      activity = None
+    return activity
+
+
 # G(x) * a + G(x) + bias
 class EmbeddingOuterProduct(nn.Module):
   def __init__(self, config):

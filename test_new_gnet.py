@@ -1,20 +1,28 @@
-import pandas as pd
-import collections
-import numpy as np
 import sys
+import os
+import collections
+import pandas as pd
+import numpy as np
+import torch
 
 from preprocessing.protein_chemistry import list_atoms,list_atoms_types,VanDerWaalsRadii,atom_mass,atom_type_to_index,atom_to_index,index_to_type,atom_type_mass
 from preprocessing.protein_chemistry import residue_dictionary,hetresidue_field
-
-from preprocessing.graph.frames import get_aa_frameCloud
 from preprocessing import sequence_utils
 
-from modeling.neighborhoods import FrameBuilder
+
+from modeling.graph.frames import get_aa_frameCloud, get_atom_frameCloud
+
+from modeling.graph.neighborhoods import FrameBuilder, LocalNeighborhood
+
+
 
 def readPdbFile(file_path):
   r"""
   read a pdb file
   """
+  if not os.exsits(file_path):
+    print("error: following file not exists, {}".format(file_path))
+    return
   #处理pdb文本，转为dataframe
   with open(file = file_path, mode ='r') as f1:
     data = f1.read()
@@ -69,7 +77,6 @@ def processDataPdbFormat(amino_dict):
     all_atom_types.append(residue_atom_type)
 
   return sequence, all_coordinates, all_atoms, all_atom_types
-  
 
 def getDataPdbFormat(file_paths):
   batch_sequences = []
@@ -87,64 +94,58 @@ def getDataPdbFormat(file_paths):
 
   return batch_sequences, batch_all_coordinates, batch_all_atoms, batch_all_atom_types
 
-
 def binarize_categorical(matrix, n_classes, out=None):
-    L = matrix.shape[0]
-    matrix = matrix.astype(np.int)
-    if out is None:
-        out = np.zeros([L, n_classes], dtype=np.bool)
-    subset = (matrix>=0) & (matrix<n_classes)
-    out[np.arange(L)[subset],matrix[subset]] = 1
-    return out
+  L = matrix.shape[0]
+  matrix = matrix.astype(np.int32)
+  if out is None:
+    out = np.zeros([L, n_classes], dtype=np.bool_)
+  subset = (matrix>=0) & (matrix<n_classes)
+  out[np.arange(L)[subset],matrix[subset]] = 1
+  return out
 
 
-file_paths = ["../dataset/P44_relaxed_rank_002_alphafold2_ptm_model_2_seed_000.pdb",]
+file_paths = ["dataset/P44_relaxed_rank_002_alphafold2_ptm_model_2_seed_000.pdb",]
 batch_sequences, batch_all_coordinates, batch_all_atoms, batch_all_atom_types = getDataPdbFormat(file_paths)
 
-# for all_coordinates, all_atoms in zip(batch_all_coordinates, batch_all_atoms):
-#   aa_clouds, aa_triplets, aa_indices = get_aa_frameCloud(all_coordinates, all_atoms)
 sequence = batch_sequences[0]
 all_coordinates, all_atoms = batch_all_coordinates[0], batch_all_atoms[0]
 
 aa_clouds, aa_triplets, aa_indices = get_aa_frameCloud(all_coordinates, all_atoms)
 
-nsequence_features = 20
 aa_attributes = binarize_categorical(
     sequence_utils.seq2num(sequence)[0], 20)
 
-
-atom_clouds, atom_triplets, atom_attributes, atom_indices =\
-  get_atom_frameCloud(sequence, all_coordinates, all_atoms)
-
+atom_clouds, atom_triplets, atom_attributes, atom_indices = \
+    get_atom_frameCloud(sequence, all_coordinates, all_atoms)
 
 
 
-
-
-tensor_aa_clouds = torch.Tensor(aa_clouds).unsqueeze(0)
+tensor_aa_clouds   = torch.Tensor(aa_clouds).unsqueeze(0)
 tensor_aa_triplets = torch.Tensor(aa_triplets).unsqueeze(0)
 tensor_aa_triplets = tensor_aa_triplets.long()
+tensor_aa_indices  = torch.Tensor(aa_indices).unsqueeze(0)
 
 config = None
 frame_builder = FrameBuilder(config)
 
 ## put into data preprocess as multi-thread running
-inputs = [tensor_aa_clouds, tensor_aa_triplets]
-frames = frame_builder(inputs)
+frames = frame_builder( [tensor_aa_clouds, tensor_aa_triplets] )
 
 
 
-
-from modeling.neighborhoods import LocalNeighborhood
-
-coordinates=['euclidian',]
-
-local_neighborhood = LocalNeighborhood(config, Kmax=16, coordinates=coordinates, self_neighborhood=True, index_distance_max=8, nrotations=1)
+config = None
+coordinates=['euclidian', 'index_distance', 'ZdotZ', 'ZdotDelta']
+local_neighborhood = LocalNeighborhood(config, 
+                                       Kmax=16, 
+                                       coordinates=coordinates, 
+                                       self_neighborhood=True, 
+                                       index_distance_max=8, 
+                                       nrotations=1)
 
 tensor_aa_attributes = torch.Tensor(aa_attributes)
 tensor_aa_attributes = tensor_aa_attributes.unsqueeze(0)
-input2localneighborhood = [frames, tensor_aa_attributes]
-output = local_neighborhood(input2localneighborhood)
+
+output = local_neighborhood( [frames, tensor_aa_indices, tensor_aa_attributes] )
 
 neighbor_coordinates, neighbors_attributes = output[0][0], output[1]
 
