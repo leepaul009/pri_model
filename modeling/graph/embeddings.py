@@ -83,7 +83,7 @@ class AttentionLayer(nn.Module):
 
 
 class GaussianKernel(nn.Module):
-  def __init__(self, N, initial_values, covariance_type='diag', eps=1e-1, **kwargs):
+  def __init__(self, d, N, initial_values, covariance_type='diag', eps=1e-1, **kwargs):
     super(GaussianKernel, self).__init__(**kwargs)
     self.support_masking = True
     self.eps = eps
@@ -93,13 +93,9 @@ class GaussianKernel(nn.Module):
     assert self.covariance_type in ['diag', 'full']
 
     ## build
-    # TODO: init input_shape = 
-    self.nbatch_dim = len(input_shape) - 1
-    self.d = 5 # input_shape[-1]
+    self.d = d
     self.center_shape = torch.Size([self.d, self.N])
-
     self.kernel_centers = torch.nn.Parameter(data=torch.Tensor(self.center_shape), requires_grad=True) # (d,N)
-
     if self.covariance_type == 'diag':
       self.width_shape = torch.Size([self.d, self.N])
       self.kernel_widths = torch.nn.Parameter(data=torch.Tensor(self.width_shape), requires_grad=True) # (d,N)
