@@ -31,7 +31,7 @@ def readPdbFile(file_path):
   """
   if not os.path.exists(file_path):
     print("error: following file not exists, {}".format(file_path))
-    return
+    assert False, "error: following file not exists, {}".format(file_path)
   #处理pdb文本，转为dataframe
   with open(file = file_path, mode ='r') as f1:
     data = f1.read()
@@ -112,8 +112,19 @@ def binarize_categorical(matrix, n_classes, out=None):
   out[np.arange(L)[subset],matrix[subset]] = 1
   return out
 
+def readCsvFiles(data_dirs):
+  files = []
+  for each_dir in data_dirs:
+    _, _, cur_files = os.walk(each_dir).__next__()
+    files.extend([os.path.join(each_dir, file) for file in cur_files 
+                  if file.endswith("csv") and not file.startswith('.')])
+  print("read following files, len = {}, first file = {}"
+    .format(len(files), files[0]))
+  for f in files:
+    df = pd.read_csv(f, sep='\t')
 
-class PriDataset(torch.utils.data.Dataset):
+
+class PriWebDataset(torch.utils.data.Dataset):
   def __init__(self, data, files, batch_size):
     '''r
       data: dataframe
@@ -181,9 +192,6 @@ class PriDataset(torch.utils.data.Dataset):
     # protein_feat: (1, num_aa, 20)
     # frames: (1, num_aa, 4, 3)
     return tensor_protein_feat, frames
-
-
-
 
 
 

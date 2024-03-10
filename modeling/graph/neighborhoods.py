@@ -264,8 +264,23 @@ class LocalNeighborhood(nn.Module):
       self.rotations = rotations
 
 
-  # inputs: indices1[N,s1,1], indices2[N,s2,1], attr1[N,s1,h], attr2[N,s2,h]
+  # wrong!!inputs: indices1[N,s1,1], indices2[N,s2,1], attr1[N,s1,h], attr2[N,s2,h]
   # outputs:
+  """r
+    inputs: 
+      frame: (bs, seq, 4, 3)
+      index: aa or atom index, (bs, seq, 1) 
+      attribute: feature map, (bs, seq, hidden_dim)
+
+    since we does not use 'distance', thus:
+    self.first_format will be ['frame', 'index']
+
+    if using self-neighborhood, input is a list as follow:
+      [frame1, index1, attr1, attr2]
+    if using cross-neighborhood, input is a list as follow:
+      [frame1, index1, frame2, index2, attr1, attr2]
+    notice here attr1 and attr2 could be 2 different type of feature
+  """
   def forward(self, inputs):
     
     # TODO: check input[0] is a tensor
@@ -273,7 +288,7 @@ class LocalNeighborhood(nn.Module):
 
     # get frame data
     if 'frame' in self.first_format:
-      first_frame = inputs[self.first_format.index('frame')]
+      first_frame = inputs[self.first_format.index('frame')] # default index = 0
     else:
       first_frame = None
     if 'frame' in self.second_format:
@@ -300,7 +315,7 @@ class LocalNeighborhood(nn.Module):
     # get index data
     # 如果 first_format = (frame, index)，则 self.first_format.index('index') = 1，则inputs的第二个输入应该是序号数据
     if 'index' in self.first_format:
-      first_index = inputs[self.first_format.index('index')] # [bs, s1, 1]
+      first_index = inputs[self.first_format.index('index')] # [bs, s1, 1], default index = 1
     else:
       first_index = None
     if 'index' in self.second_format:

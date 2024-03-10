@@ -96,17 +96,30 @@ class GaussianKernel(nn.Module):
     self.d = d
     self.center_shape = torch.Size([self.d, self.N])
     self.kernel_centers = torch.nn.Parameter(data=torch.Tensor(self.center_shape), requires_grad=True) # (d,N)
+    self.kernel_widths = None
+    self.sqrt_precision = None
+
     if self.covariance_type == 'diag':
       self.width_shape = torch.Size([self.d, self.N])
       self.kernel_widths = torch.nn.Parameter(data=torch.Tensor(self.width_shape), requires_grad=True) # (d,N)
+
     elif self.covariance_type == 'full':
       self.sqrt_precision_shape = torch.Size([self.d, self.d, self.N])
       self.sqrt_precision = torch.nn.Parameter(data=torch.Tensor(self.sqrt_precision_shape), requires_grad=True) # (d, d,N)
 
+    nn.init.kaiming_normal_(self.kernel_centers, mode="fan_in", nonlinearity="relu")
+    if self.kernel_widths is not None:
+      nn.init.kaiming_normal_(self.kernel_widths, mode="fan_in", nonlinearity="relu")
+    if self.sqrt_precision is not None:
+      nn.init.kaiming_normal_(self.sqrt_precision, mode="fan_in", nonlinearity="relu")
+
+  """r
+    x: (N,L,kmax,n_coord), where n_coord = d, is coordinate dimension
+  """
   def forward(self, x):
     nbatch_dim   = len(x.shape) - 1
-    input_size   = torch.Size([1 for _ in nbatch_dim])
-    centers_size = input_size + self.center_shape # [1,1,1,5,N]
+    input_size   = torch.Size([1 for _ in range(nbatch_dim)]) # (1,1,1)
+    centers_size = input_size + self.center_shape # (1,1,1,n_coord,N)
 
     if self.covariance_type == 'diag':
       base_size = input_size + self.width_shape # [1,1,1,5,N]
@@ -115,10 +128,12 @@ class GaussianKernel(nn.Module):
       x = ( x.unsqueeze(dim=-1) - self.kernel_centers.reshape(centers_size) ) / base
       activity = torch.exp( -0.5 * torch.sum(x**2, dim=-2) )
     elif self.covariance_type == 'full':
-      # (bs,seq,32,5,1) - (1,1,1,d=5,N) = (bs,seq,32,5,N)
+      # (bs,seq,kmax,n_coord,1) - (1,1,1,n_coord,N) = (bs,seq,kmax,n_coord,N)
+      # (bs,seq,16,d=3,1) - (1,1,1,d=3,N) = (bs,seq,16,d-3,N)
       intermediate  = x.unsqueeze(dim=-1) - self.kernel_centers.reshape(centers_size)
-      # (bs,seq,32,1,5,N) * (1,5,5,N) = (bs,seq,32,5,5,N) = (bs,seq,32,5,N)
-      intermediate2 = torch.sum(intermediate.unsqueeze(dim=-3) * self.sqrt_precision.unsqueeze(dim=0), dim=-2)
+      # (bs,seq,16,1,d,N) * (1,d,d,N) = (bs,seq,16,d,d,N) = (bs,seq,16,d,N)
+      intermediate2 = torch.sum(intermediate.unsqueeze(dim=-3) 
+                                * self.sqrt_precision.unsqueeze(dim=0), dim=-2)
       activity = torch.exp(-0.5 * torch.sum(intermediate2**2, dim=-2)) # (bs,seq,32,N)
     else:
       activity = None
@@ -129,25 +144,25 @@ class GaussianKernel(nn.Module):
 class EmbeddingOuterProduct(nn.Module):
   def __init__(self, config):
     super(EmbeddingOuterProduct, self).__init__()
-    self.config = config
+    self.config = config # not used any more
 
     self.sum_axis = 2
     self.use_bias = False
-    self.kernel12 = torch.nn.Parameter(data=torch.Tensor(32, 12, 128), requires_grad=True)
+    self.kernel12 = torch.nn.Parameter(data=torch.Tensor(32, 20, 128), requires_grad=True)
     self.kernel1 = torch.nn.Parameter(data=torch.Tensor(32, 128), requires_grad=True)
     self.bias = torch.nn.Parameter(data=torch.Tensor(128), requires_grad=True)
     # init
 
   def forward(self, inputs):
-    first_input = inputs[0] # [bs, seq, k, feat]
-    second_input = inputs[1] # [bs, seq, k, feat]
+    first_input = inputs[0] # [bs, seq, k, 32]
+    second_input = inputs[1] # [bs, seq, k, 20]
 
     if self.sum_axis is not None:
       temp = torch.unsqueeze(first_input, dim=-1) \
-            * torch.unsqueeze(second_input, dim=-2)
-      outer_product = torch.sum(temp, dim=self.sum_axis)
+            * torch.unsqueeze(second_input, dim=-2) # (bs,seq,k,32,1)*(bs,seq,k,1,20)
+      outer_product = torch.sum(temp, dim=self.sum_axis) # (bs,seq,32,20) sum across dim kmax
 
-    activity = torch.tensordot(outer_product, self.kernel12, dims=([-2, -1], [0, 1]))
+    activity = torch.tensordot(outer_product, self.kernel12, dims=([-2, -1], [0, 1])) #(bs,sq,128)
 
     activity += torch.tensordot(first_input.sum(dim=self.sum_axis), self.kernel1, ([-1],[0]))
     if self.use_bias:

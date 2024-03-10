@@ -71,6 +71,7 @@ class MapNet(nn.Module):
 
     res = x # (bs*seq, h)
     for i in range(4):
+      # naming of node and edge has no meaning!!
       x_node = self.fuse[i](x)
       x_edge = self.edge[i](x)
 
