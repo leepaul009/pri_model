@@ -344,7 +344,7 @@ class LocalNeighborhood(nn.Module):
     # determine the first and second center
     # 如果使用'frame'，则first_frame不可能是None
     if first_frame is not None:
-      first_center = first_frame[:,:,0] # frame的shape=(bs, s1, 4, 3)，所以此处0表示第一个点，即中心点
+      first_center = first_frame[:,:,0] # frame的shape=(bs,s1,4,3)，所以此处0表示第一个点，即中心点 (bs,s1,3)
       ndims = 3
     elif first_point is not None:
       first_center = first_point
@@ -355,7 +355,7 @@ class LocalNeighborhood(nn.Module):
 
     # 如果使用'frame'，则second_frame不可能是None
     if second_frame is not None:
-      second_center = second_frame[:,:,0]
+      second_center = second_frame[:,:,0] # (bs,s1,3)
     elif second_point is not None:
       second_center = second_point
     else:
@@ -481,7 +481,7 @@ class LocalNeighborhood(nn.Module):
     if 'index_distance' in self.coordinates:
       neighbor_second_indices = []
       for i in range(batch_size):
-        # [s2, 1] => [s1, k, 1] => [1, s1, k, 1]
+        # (s2,1) with (s1,k) => (s1,k,1) => (1,s1,k,1)
         neighbor_second_indices.append(
           second_index[i, neighbors[i], :].unsqueeze(dim=0) )
       neighbor_second_indices = torch.cat(neighbor_second_indices, dim=0) # [bs, s1, k, 1]

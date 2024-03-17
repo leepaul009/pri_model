@@ -14,6 +14,7 @@ class AttributeEmbedding(nn.Module):
     super(AttributeEmbedding, self).__init__()
     self.activation = activation
     self.norm = norm
+    # 因为nn.Linear只能处理2个维度的tensor，所以需要TimeDistributed辅助处理3个维度的
     self.layer = nn.Linear(in_features=in_features, out_features=out_features, bias=False)
     self.layer = TimeDistributed(self.layer)
     if self.norm:
@@ -21,40 +22,107 @@ class AttributeEmbedding(nn.Module):
 
   def forward(self, inputs : Tensor) -> Tensor:
     outputs = self.layer(inputs) # [bs, seq, h]->[bs, seq, h]
+    
     if self.norm:
       outputs = self.layer_norm(outputs)
+    
     if self.activation == 'relu':
       outputs = F.relu(outputs)
-    else: # TODO: involve more activation
-      NotImplemented
+    else: # use relu as default
+      outputs = F.relu(outputs)
+
     return outputs
 
 
 class AttentionLayer(nn.Module):
-  def __init__(self, config):
+  def __init__(self, 
+               self_attention=True, 
+               beta=True):
     super(AttentionLayer, self).__init__()
-    self.config = config
+    # self.config = config
+    self.self_attention = self_attention
+    self.beta = beta
+
     self.epsilon = 1e-6
 
+    # self.Lmax = 256
+    # self.Kmax = 14
+    # self.nfeatures_graph = 1
+    # self.nheads = 64
+    # self.nfeatures_output = 1
+
+
+  def forward(self, inputs):
     self.Lmax = 256
     self.Kmax = 14
     self.nfeatures_graph = 1
     self.nheads = 64
     self.nfeatures_output = 1
 
+    if self.self_attention and self.beta:
+      # attention_coefficients, node_outputs, graph_weights = inputs
+      """
+        beta: (N,L,1)
+        self_attention: (N,L,1)
+        attention_coefficients: (N,L,K=32,1)
+        node_outputs:  (N,L,K=32,2)
+        graph_weights: (N,L,K=32,1)
+      """
+      beta, self_attention, attention_coefficients, node_outputs, \
+        graph_weights = inputs
+      # shape
+      # beta_shape = beta.shape
+      # self_attention_shape = self_attention.shape
+      # attention_coefficient_shape = attention_coefficients.shape
+      # node_activity_shape = node_outputs.shape
+      # graph_weights_shape = graph_weights.shape
+    else:
+      attention_coefficients, node_outputs, graph_weights = inputs
+    
+    self.Lmax = graph_weights.shape[1] # L, sequence length
+    self.Kmax = graph_weights.shape[2] # K, k近邻
+    self.nfeatures_graph = graph_weights.shape[-1] # 1
+    self.nheads = attention_coefficients.shape[-1] // self.nfeatures_graph # 1/1
+    self.nfeatures_output = node_outputs.shape[-1] // self.nheads # 2/1
 
-  def forward(self, inputs):
-    attention_coefficients, node_outputs, graph_weights = inputs
+    #
     device = attention_coefficients.device
-
     epsilon = torch.tensor(self.epsilon).to(device)
 
-    # [N, aa_seq, k, 1, 64]
+    #
+    if self.beta:
+      # (N,L,1,1)
+      beta = beta.reshape(-1, self.Lmax, self.nfeatures_graph, self.nheads)
+    if self.self_attention:
+      # (N,L,1,1)
+      self_attention = self_attention.reshape(
+        -1, self.Lmax, self.nfeatures_graph, self.nheads)
+
+    # (N,L,K=32,1) = (N,L,K,1,1)
     attention_coefficients = attention_coefficients.reshape(
       -1, self.Lmax, self.Kmax, self.nfeatures_graph, self.nheads)
-    # [N, aa_seq, k, 1, 64]
+    # (N,L,K=32,2) = (N,L,K,2,1)
     node_outputs = node_outputs.reshape(
       -1, self.Lmax, self.Kmax, self.nfeatures_output, self.nheads)
+
+    if self.self_attention:
+      # # (N,L,K,1,1) = 
+      # attention_coefficients_self, attention_coefficient_others =\
+      #   attention_coefficients
+      # # (N,L,1,1) = (N,L,1,1,1)
+      # attention_coefficients_self += self_attention.unsqueeze(dim=2)
+      # # 
+      # attention_coefficients = torch.cat(
+      #   [attention_coefficients_self, attention_coefficient_others], dim=2)
+
+      # (N,L,1,1,1)
+      # tmp = self_attention.unsqueeze(dim=2)
+      # (N,L,K,1,1) 从k维度 加到地1个维度
+      attention_coefficients[:,:,1] += self_attention
+    if self.beta:
+      # (N,L,1,1) = (N,L,1,1,1)
+      attention_coefficients *= (beta + self.epsilon).unsqueeze(dim=2)
+
 
     # [N, aa_seq, k, 1, 64] => [N, aa_seq, k, 1, 64]
     # attention_coefficients -= tf.reduce_max(
@@ -77,7 +145,7 @@ class AttentionLayer(nn.Module):
     # output_final = tf.reshape(tf.reduce_sum(node_outputs * tf.expand_dims(
     #     attention_coefficients_final, axis=-2), axis=2), [-1, self.Lmax, self.nfeatures_output * self.nheads])
     output_final = node_outputs * attention_coefficients_final.unsqueeze(dim=-2)
-    output_final = torch.sum(output_final, dim=-2).reshape(-1, self.Lmax, self.nfeatures_output * self.nheads)
+    output_final = torch.sum(output_final, dim=2).reshape(-1, self.Lmax, self.nfeatures_output * self.nheads)
 
     return [output_final, attention_coefficients_final]
 
@@ -129,12 +197,14 @@ class GaussianKernel(nn.Module):
       activity = torch.exp( -0.5 * torch.sum(x**2, dim=-2) )
     elif self.covariance_type == 'full':
       # (bs,seq,kmax,n_coord,1) - (1,1,1,n_coord,N) = (bs,seq,kmax,n_coord,N)
-      # (bs,seq,16,d=3,1) - (1,1,1,d=3,N) = (bs,seq,16,d-3,N)
+      # (bs,seq,k,d,1) - (1,1,1,d,N) = (bs,seq,k,d,N)
       intermediate  = x.unsqueeze(dim=-1) - self.kernel_centers.reshape(centers_size)
-      # (bs,seq,16,1,d,N) * (1,d,d,N) = (bs,seq,16,d,d,N) = (bs,seq,16,d,N)
+      # 对倒数第二个维度,"d维度"上求和
+      # (bs,seq,k,1,d,N) * (1,d,d,N) = (bs,seq,k,d,d,N) = (bs,seq,k,d,N)
       intermediate2 = torch.sum(intermediate.unsqueeze(dim=-3) 
                                 * self.sqrt_precision.unsqueeze(dim=0), dim=-2)
-      activity = torch.exp(-0.5 * torch.sum(intermediate2**2, dim=-2)) # (bs,seq,32,N)
+      # 在“d维度”上求和: (bs,seq,k,d,N) = (bs,seq,k=16,N)
+      activity = torch.exp(-0.5 * torch.sum(intermediate2**2, dim=-2))
     else:
       activity = None
     return activity
@@ -142,15 +212,15 @@ class GaussianKernel(nn.Module):
 
 # G(x) * a + G(x) + bias
 class EmbeddingOuterProduct(nn.Module):
-  def __init__(self, config):
+  def __init__(self, n_gaussians, in_features, out_features):
     super(EmbeddingOuterProduct, self).__init__()
-    self.config = config # not used any more
+    # self.config = config # not used any more
 
     self.sum_axis = 2
     self.use_bias = False
-    self.kernel12 = torch.nn.Parameter(data=torch.Tensor(32, 20, 128), requires_grad=True)
-    self.kernel1 = torch.nn.Parameter(data=torch.Tensor(32, 128), requires_grad=True)
-    self.bias = torch.nn.Parameter(data=torch.Tensor(128), requires_grad=True)
+    self.kernel12 = torch.nn.Parameter(data=torch.Tensor(n_gaussians, in_features, out_features), requires_grad=True)
+    self.kernel1 = torch.nn.Parameter(data=torch.Tensor(n_gaussians, out_features), requires_grad=True)
+    self.bias = torch.nn.Parameter(data=torch.Tensor(out_features), requires_grad=True)
     # init
 
   def forward(self, inputs):
