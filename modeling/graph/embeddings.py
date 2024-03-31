@@ -211,6 +211,8 @@ class GaussianKernel(nn.Module):
 
 
 # G(x) * a + G(x) + bias
+# weight即是kernel，即网络参数
+# 几何特征 × 高维特征 × weight + 几何特征 × weight + bias
 class EmbeddingOuterProduct(nn.Module):
   def __init__(self, n_gaussians, in_features, out_features):
     super(EmbeddingOuterProduct, self).__init__()
@@ -224,8 +226,8 @@ class EmbeddingOuterProduct(nn.Module):
     # init
 
   def forward(self, inputs):
-    first_input = inputs[0] # [bs, seq, k, 32]
-    second_input = inputs[1] # [bs, seq, k, 20]
+    first_input = inputs[0] # [bs, seq, k, 32] 几何特征
+    second_input = inputs[1] # [bs, seq, k, 20] 高维特征
 
     if self.sum_axis is not None:
       temp = torch.unsqueeze(first_input, dim=-1) \

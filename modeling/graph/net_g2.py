@@ -7,13 +7,13 @@ from modeling.graph.layers import Linear
 from modeling.graph.neighborhoods import LocalNeighborhood
 from modeling.graph.embeddings import GaussianKernel, \
   EmbeddingOuterProduct, AttributeEmbedding, AttentionLayer
+from modeling.lib import CrossAttention
 
 
-
-class GNetVerOne(nn.Module):
+class GNetVerSecond(nn.Module):
 
   def __init__(self, hidden_dim=32, ):
-    super(GNetVerOne, self).__init__()
+    super(GNetVerSecond, self).__init__()
 
     config = None
     coordinates = ['euclidian', 'index_distance', 'ZdotZ', 'ZdotDelta']
@@ -64,6 +64,20 @@ class GNetVerOne(nn.Module):
                                                   activation='relu')
     self.attention_layer = AttentionLayer()
 
+    # hidden_size = attention_head_size * num_attention_heads
+    num_attention_heads = 8
+    attention_head_size = 32 # 每个head的特征维度
+    hidden_size = attention_head_size * num_attention_heads # 128 网络内部参数
+
+    key_hidden_size = 20
+    query_hidden_size = 3+1+1+1+1
+
+    self.cross_att = CrossAttention(hidden_size = hidden_size, 
+                                    attention_head_size = attention_head_size,
+                                    num_attention_heads = num_attention_heads,
+                                    key_hidden_size = key_hidden_size,
+                                    query_hidden_size = query_hidden_size)
+
   def forward(self, x):
     # (bs, L, 20) => (bs, L, 32)
 
@@ -86,6 +100,7 @@ class GNetVerOne(nn.Module):
           index_dist: (N,L,kmax,1)
         neighbor_attr: (N, L, kmax, H=20), H维度是aa_attributes的维度, H=20
     """
+    ###### 1) 计算每个node想对于k近邻node的几何特征，即neighbor_coords
     neighbor_coords, neighbor_attr = self.local_neighborhood( [aa_frame, aa_indices, aa_attributes] )
 
     # neighbor_coords_feat是每个node的k近邻的某种特征：
@@ -94,13 +109,23 @@ class GNetVerOne(nn.Module):
     # euclidian_coords = neighbor_coords[0] # (N,L,kmax,3)
     neighbor_coords_feat = torch.cat(neighbor_coords, dim=-1)
 
+    ###### 2)
+    # neighbor_coords_feat (N,L,kmax,7)
+    # neighbor_attr (N,L,kmax,20)
+    batch_size = neighbor_coords_feat.shape[0]
+    seq_len = neighbor_coords_feat.shape[1]
+    kmax = neighbor_coords_feat.shape[2]
+    query_feat = neighbor_coords_feat.reshape(batch_size * seq_len, kmax, -1)
+    feat = neighbor_attr.reshape(batch_size * seq_len, kmax, -1)
+
+    y = cross_att(hidden_states_query = query_feat, hidden_states_key = feat)
+
+     
     # y = e**[ 0.5*((x - ctr_kernel) * sqrt_kernel)**2 ]
     # (N,L,kmax,3) ==> (N,L,kmax,32)
     embedded_local_coordinates = self.guassian_kernel(neighbor_coords_feat)
-
     # (N,L,kmax,32), (N,L,kmax,H) ==> (N,L,128) where H(outer_product) = 128
     filters_input = self.outer_product( [embedded_local_coordinates, neighbor_attr] )
-
     SCAN_filters_aa = self.relu(filters_input)
     # do dropout to SCAN_filters_aa
 
