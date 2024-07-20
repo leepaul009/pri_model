@@ -1,4 +1,5 @@
 import os
+import numpy as np
 from typing import Sequence, Tuple, List, Union, Dict
 import pickle
 import zlib
@@ -14,11 +15,15 @@ from modeling.graph.neighborhoods import FrameBuilder
 
 
 class GraphBatchConvert(object):
-  def __init__(self, seq2file=None, default_pdb_file=None):
+  def __init__(self, file_structure, seq2file=None, default_pdb_file=None):
     self.default_pdb_file = default_pdb_file
     # self.pdb_files = [default_pdb_file] if pdb_files is None else pdb_files
     self.seq2file = seq2file
     self.frame_builder = FrameBuilder(config=None)
+
+    self.structure_by_seq = None
+    with np.load(file_structure, allow_pickle=True) as npzfile:
+      self.structure_by_seq = dict(npzfile.items())
 
   def process(self, file_path):
     amino_dict = readPdbFile(file_path)
@@ -66,6 +71,57 @@ class GraphBatchConvert(object):
     # frame: (num_aa, 4, 3)
     return frame, aa_indices
 
+  def process2(self, file_path):
+    amino_dict = readPdbFile(file_path)
+    # sequence: string
+    # all_coordinates: list[numpy.array], 
+    #   list indicates amino acids
+    #   each numpy.array have a shape of (n,3) where n is 
+    #   number of atoms in corresponding amino acid
+    # all_atoms: List[List[int]]
+    #   each element is atom index
+    #   where outer list indicates amino acids
+    #   and inner list indicates atoms
+    # all_atom_types: List[List[int]]
+    #   each element is index of atom type
+    #   where outer list indicates amino acids
+    #   and inner list indicates atoms 
+    sequence, all_coordinates, all_atoms, all_atom_types \
+      = processDataPdbFormat(amino_dict)
+
+    # protein_feat = binarize_categorical(
+    #   sequence_utils.seq2num(sequence)[0], 20) # (num_aa, 20)
+
+    # size of num_aa×2+1
+    # aa_clouds shape=(num_aa×2+1, 3)
+    # aa_triplets shape=(num_aa, 3)
+    # all_atoms shape=(num_aa, 1)
+    aa_clouds, aa_triplets, aa_indices = \
+      get_aa_frameCloud(all_coordinates, all_atoms)
+
+    # not used now
+    atom_clouds, atom_triplets, atom_attributes, atom_indices = \
+      get_atom_frameCloud(sequence, all_coordinates, all_atoms)
+
+    tensor_aa_clouds   = torch.Tensor(aa_clouds).unsqueeze(0)
+    tensor_aa_triplets = torch.Tensor(aa_triplets).unsqueeze(0).long()
+
+    # (1, num_aa, 4, 3)
+    frame = self.frame_builder(
+      [tensor_aa_clouds, tensor_aa_triplets])
+    frame = frame.squeeze(0) # (num_aa, 4, 3)
+    # tensor_protein_feat = torch.Tensor(protein_feat).unsqueeze(0) # (1, num_aa, 20)
+
+    aa_indices = torch.Tensor(aa_indices)
+
+    # frame: (num_aa, 4, 3)
+    return sequence, frame, aa_indices
+
+  def get_struct_with_file(self, protein):
+    data_dict = self.structure_by_seq[protein].item()
+
+    return data_dict["frame"], data_dict["aa_indices"] # (num_aa, 4, 3), (num_aa, 1)
+
   def __call__(self, inputs: List[Dict]):
     
     list_protein_feats = []
@@ -90,11 +146,12 @@ class GraphBatchConvert(object):
       max_length = max([length_protein, max_length])
 
       if self.seq2file is not None:
-        file_path = self.seq2file[protein]
+        file_path = self.seq2file[protein]  ## 目前不用这个，我们会事先为每个prot生成结构数据
       else:
         file_path = self.default_pdb_file
 
-      frame, aa_indices = self.process(file_path)
+      # frame, aa_indices = self.process(file_path)  # process raw prot seq to compute structure
+      frame, aa_indices = self.get_struct_with_file(protein)
       # 现在的 frame 和 aa_indices 是假的，所以序列长度也是假的，需要这里改长度
       frame = frame[:length_protein] # (num_aa, 4, 3)
       aa_indices = aa_indices[:length_protein] # (num_aa, 1)
@@ -124,7 +181,7 @@ class GraphBatchConvert(object):
       tensor_feats[i, :L]  = feat
       tensor_aa_indices[i, :L] = indices
     
-    labels = torch.Tensor(labels).long()
+    labels = torch.Tensor(labels) #.long()
 
     # feat:    (bs, seq(pad), 20)
     # frame:   (bs, seq(pad), 4, 3)

@@ -19,7 +19,7 @@ from torch.utils.data import DataLoader
 from modeling.batch_convert.batch_convert import GraphBatchConvert
 import utils
 from modeling.graph.net_g1 import GNetVerOne
-
+from modeling.graph.net_g2 import GNetVerSecond
 
 
 
@@ -31,16 +31,18 @@ def main():
   args: utils.Args = parser.parse_args()
 
 
-  dataset_dir = "/home/paul/workspace/pri_model/dataset"
-  # use default graph convert
-  default_pdb_file = os.path.join(dataset_dir, "P44_relaxed_rank_002_alphafold2_ptm_model_2_seed_000.pdb")
-  batch_convert = GraphBatchConvert(default_pdb_file=default_pdb_file)
+  dataset_dir = "/home/paul/workspace/pri_model/dataset/dataset_rel_dna_intensity"
+  # do not use pdb file to compute prot struct
+  # default_pdb_file = os.path.join(dataset_dir, "P44_relaxed_rank_002_alphafold2_ptm_model_2_seed_000.pdb")
+  file_structure = os.path.join(dataset_dir, "structure_by_seq.npz")
+  batch_convert = GraphBatchConvert(file_structure)
 
-  url = os.path.join(dataset_dir, "dna_intensity_dataset/example/dna-1k-{000001..000002}.tar")
+  url = os.path.join(dataset_dir, "example/dna-1k-{000001..000002}.tar")
   dataset = wds.WebDataset(url)
   dataloader = DataLoader(dataset, num_workers=4, batch_size=16, collate_fn=batch_convert)
 
-  net = GNetVerOne()
+  # net = GNetVerOne()
+  net = GNetVerSecond()
 
   for step, data in enumerate(dataloader):
     tensor_feats, tensor_frames, tensor_indices, labels = data

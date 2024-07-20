@@ -97,7 +97,7 @@ class AttentionLayer(nn.Module):
       # (N,L,1,1)
       self_attention = self_attention.reshape(
         -1, self.Lmax, self.nfeatures_graph, self.nheads)
-
+    # attention_coefficients和node_outputs是第二次 邻居网路 处理的 邻居特征
     # (N,L,K=32,1) = (N,L,K,1,1)
     attention_coefficients = attention_coefficients.reshape(
       -1, self.Lmax, self.Kmax, self.nfeatures_graph, self.nheads)
@@ -117,31 +117,31 @@ class AttentionLayer(nn.Module):
 
       # (N,L,1,1,1)
       # tmp = self_attention.unsqueeze(dim=2)
-      # (N,L,K,1,1) 从k维度 加到地1个维度
-      attention_coefficients[:,:,1] += self_attention
+      # (N,L,K,1,1) 从k维度 加到地1个维度 （即最近的邻居）
+      attention_coefficients[:,:,1] += self_attention  # self_attention和beta是第一阶段 embedding 经过全连接曾得到的 特征
     if self.beta:
       # (N,L,1,1) = (N,L,1,1,1)
       attention_coefficients *= (beta + self.epsilon).unsqueeze(dim=2)
 
 
-    # [N, aa_seq, k, 1, 64] => [N, aa_seq, k, 1, 64]
+    # [N, L, k, 1, 1] - [N, L, 1, 1, 1] => [N, L, k, 1, 1]
     # attention_coefficients -= tf.reduce_max(
     #     attention_coefficients, axis=[-3, -2], keep_dims=True)
     attention_coefficients -= torch.sum(
       attention_coefficients, dim=[-3, -2], keepdim=True)
-    # wt[N, aa_seq, k, 1, 1]*att[N, aa_seq, 1, 1, 64] => [N, aa_seq, k, 64]
+    # wt[N, L, k, 1, 1]*att[N, L, 1, 1, 1] => [N, L, k, 1]
     # attention_coefficients_final = tf.reduce_sum(tf.expand_dims(
     #     graph_weights, axis=-1) * K.exp(attention_coefficients), axis=-2)
     attention_coefficients_final = torch.sum(
       graph_weights.unsqueeze(dim=-1) * torch.exp(attention_coefficients), dim=-2)
-    # [N, aa_seq, k, 64] / [N, aa_seq, 1, 64] + eps
+    # [N, L, k, 1] / [N, L, 1, 1] + eps
     # attention_coefficients_final /= tf.reduce_sum(
     #     tf.abs(attention_coefficients_final), axis=-2, keep_dims=True) + self.epsilon
     attention_coefficients_final /= torch.sum(
       torch.abs(attention_coefficients_final), dim=-2, keepdim=True) + epsilon
 
     # here: max_pool=>[64], wt+exp=>[k,64]
-    # [N, aa_seq, k, 1, 64]*[N, aa_seq, k, 1, 64]=>[N,s,k,1,64]=reduce_sum(k)=>[N,s,1,64]=>[N,s,64]
+    # [N, L, k, 2, 1]*[N, L, k, 1, 1]=>[N,L,k,2,1]=reduce_sum(k)=>[N,L,2,1]=>[N,L,2]
     # output_final = tf.reshape(tf.reduce_sum(node_outputs * tf.expand_dims(
     #     attention_coefficients_final, axis=-2), axis=2), [-1, self.Lmax, self.nfeatures_output * self.nheads])
     output_final = node_outputs * attention_coefficients_final.unsqueeze(dim=-2)
@@ -163,17 +163,17 @@ class GaussianKernel(nn.Module):
     ## build
     self.d = d
     self.center_shape = torch.Size([self.d, self.N])
-    self.kernel_centers = torch.nn.Parameter(data=torch.Tensor(self.center_shape), requires_grad=True) # (d,N)
+    self.kernel_centers = torch.nn.Parameter(data=torch.rand(self.center_shape), requires_grad=True) # (d,N)
     self.kernel_widths = None
     self.sqrt_precision = None
 
     if self.covariance_type == 'diag':
       self.width_shape = torch.Size([self.d, self.N])
-      self.kernel_widths = torch.nn.Parameter(data=torch.Tensor(self.width_shape), requires_grad=True) # (d,N)
+      self.kernel_widths = torch.nn.Parameter(data=torch.rand(self.width_shape), requires_grad=True) # (d,N)
 
     elif self.covariance_type == 'full':
       self.sqrt_precision_shape = torch.Size([self.d, self.d, self.N])
-      self.sqrt_precision = torch.nn.Parameter(data=torch.Tensor(self.sqrt_precision_shape), requires_grad=True) # (d, d,N)
+      self.sqrt_precision = torch.nn.Parameter(data=torch.rand(self.sqrt_precision_shape), requires_grad=True) # (d, d,N)
 
     nn.init.kaiming_normal_(self.kernel_centers, mode="fan_in", nonlinearity="relu")
     if self.kernel_widths is not None:
@@ -220,9 +220,9 @@ class EmbeddingOuterProduct(nn.Module):
 
     self.sum_axis = 2
     self.use_bias = False
-    self.kernel12 = torch.nn.Parameter(data=torch.Tensor(n_gaussians, in_features, out_features), requires_grad=True)
-    self.kernel1 = torch.nn.Parameter(data=torch.Tensor(n_gaussians, out_features), requires_grad=True)
-    self.bias = torch.nn.Parameter(data=torch.Tensor(out_features), requires_grad=True)
+    self.kernel12 = torch.nn.Parameter(data=torch.rand(n_gaussians, in_features, out_features), requires_grad=True)
+    self.kernel1 = torch.nn.Parameter(data=torch.rand(n_gaussians, out_features), requires_grad=True)
+    self.bias = torch.nn.Parameter(data=torch.rand(out_features), requires_grad=True)
     # init
 
   def forward(self, inputs):
